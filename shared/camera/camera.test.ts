@@ -20,6 +20,7 @@ import {
   twistAngle,
   ZOOM_PER_NOTCH,
   wheelZoom,
+  panSensibility,
 } from './index';
 
 // Compass convention: heading is where the camera LOOKS. 0 = north (toward
@@ -257,5 +258,32 @@ describe('wheelZoom', () => {
   it('stays within the zoom limits', () => {
     expect(wheelZoom(3.2, -1000, 3, 50)).toBe(3);
     expect(wheelZoom(48, 1000, 3, 50)).toBe(50);
+  });
+});
+
+describe('panSensibility (drag to pan)', () => {
+  const fov = 0.8;
+  /** How far (world units) a drag of `pixels` moves the view, after the glide that follows. */
+  const panned = (pixels: number, distance: number, viewport: number, inertia: number) =>
+    (pixels / panSensibility(distance, fov, viewport, inertia)) / (1 - inertia);
+  /** World units across the screen's height, at the point the camera looks at. */
+  const visible = (distance: number) => 2 * distance * Math.tan(fov / 2);
+
+  it('moves the ground with the finger: a full-screen drag moves one screen', () => {
+    expect(panned(700, 20, 700, 0.6)).toBeCloseTo(visible(20), 6);
+    expect(panned(350, 20, 700, 0)).toBeCloseTo(visible(20) / 2, 6);
+  });
+
+  it('pans faster when zoomed out, by exactly as much as the view grew', () => {
+    expect(panned(100, 80, 700, 0.6) / panned(100, 20, 700, 0.6)).toBeCloseTo(4, 6);
+  });
+
+  it('feels the same on any screen size', () => {
+    expect(panned(400, 30, 400, 0.6)).toBeCloseTo(panned(900, 30, 900, 0.6), 6);
+  });
+
+  it('stays usable before the view has a size', () => {
+    expect(Number.isFinite(panSensibility(20, fov, 0, 0.6))).toBe(true);
+    expect(panSensibility(20, fov, 0, 0.6)).toBeGreaterThan(0);
   });
 });

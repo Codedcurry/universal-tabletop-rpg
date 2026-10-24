@@ -17,7 +17,8 @@ import type { CameraCommand, CameraView } from '@shared/camera';
 import type { StylePack } from '../style/stylePack';
 import type { CombatEvent, CombatState } from '@shared/combat';
 import type { GameSystem } from '@shared/system';
-import { type GraphicsQuality, effectsFor } from '@shared/graphics';
+import { type AnimationSpeed, timingFor } from '@shared/anim';
+import { type GraphicsQuality, SlowFrameDetector, effectsFor } from '@shared/graphics';
 import { CameraRig } from './CameraRig';
 import { SceneEffects } from './SceneEffects';
 import { TokenLayer } from './TokenLayer';
@@ -66,6 +67,11 @@ export class WorldView {
   private readonly rig: CameraRig;
   private readonly tokens: TokenLayer;
   private readonly effects: SceneEffects;
+  private quality: GraphicsQuality = 'low';
+  private readonly slowFrames = new SlowFrameDetector();
+  private onSlow: (() => void) | null = null;
+  /** Whether the previous tick of the render loop drew a frame (no idle pause in between). */
+  private drewLastTick = false;
   private readonly labelLayer: HTMLDivElement;
   private onTokenClick: (id: string) => void = () => undefined;
   private readonly materials = new Map<string, StandardMaterial>();
@@ -182,13 +188,22 @@ export class WorldView {
         this.dirty = true;
       }
       if (this.rig.update(dt)) this.activeUntil = Math.max(this.activeUntil, now + GLIDE_MS);
-      if (!this.dirty && now > this.activeUntil) return;
+      if (!this.dirty && now > this.activeUntil) {
+        this.drewLastTick = false;
+        return;
+      }
+      const continued = this.drewLastTick;
+      this.drewLastTick = true;
       this.effects.setFocus(this.rig.camera.radius); // depth of field stays sharp where the camera looks
       this.scene.render();
       // After drawing, so name tags follow the camera exactly as just drawn.
       // In CSS pixels, like the name tags: the canvas may draw more pixels than that on high-DPI screens.
       const size = { width: this.canvas.clientWidth, height: this.canvas.clientHeight };
-      if (this.tokens.update(now, this.rig.heading, size)) this.activeUntil = Math.max(this.activeUntil, now + GLIDE_MS);
+      const animating = this.tokens.update(now, this.rig.heading, size);
+      if (animating) this.activeUntil = Math.max(this.activeUntil, now + GLIDE_MS);
+      this.canvas.dataset.animating = String(animating);
+      // Too slow for the effects? Ask to lower them (nothing to lower on Low).
+      if (this.quality !== 'low' && this.slowFrames.frame(now, continued)) this.onSlow?.();
       const view = this.cameraState();
       if (view !== this.lastView) this.activeUntil = Math.max(this.activeUntil, now + GLIDE_MS);
       this.lastView = view;
@@ -199,9 +214,21 @@ export class WorldView {
 
   /** Sets how much 2.5D polish to draw (bloom, depth of field, shadows, glows). */
   setGraphics(quality: GraphicsQuality): void {
+    this.quality = quality;
+    this.slowFrames.reset();
     this.effects.apply(effectsFor(quality));
     this.engine.resize();
     this.invalidate();
+  }
+
+  /** Called when frames stay too slow for the current graphics setting. */
+  onSlowFrames(listener: () => void): void {
+    this.onSlow = listener;
+  }
+
+  /** How fast combat actions play out. */
+  setAnimationSpeed(speed: AnimationSpeed): void {
+    this.tokens.setTiming(timingFor(speed));
   }
 
   /** Asks for a redraw on the next frame. */

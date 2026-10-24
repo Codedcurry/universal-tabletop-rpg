@@ -8,6 +8,8 @@ import { type HostedGame, type JoinedGame, hostGame, joinGame } from './net/tran
 import { HostView } from './ui/HostView';
 import { Home } from './ui/Home';
 import { PlayerView } from './ui/PlayerView';
+import { useDisplaySettings } from './ui/displaySettings';
+import { useWakeLock } from './ui/useWakeLock';
 
 type View =
   | { readonly kind: 'home' }
@@ -24,6 +26,9 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [focus, setFocus] = useState<{ cell: Cell; key: number } | null>(null);
   // The latest combat action, which the map acts out; `key` makes each one play once.
+  // In a game, keep the screen awake (unless turned off under ⚙ on the map).
+  const { keepAwake } = useDisplaySettings();
+  useWakeLock(keepAwake && view.kind !== 'home');
   const [combatEvents, setCombatEvents] = useState<{ events: readonly CombatEvent[]; key: number } | null>(null);
   const onCombatEvents = (events: readonly CombatEvent[]) =>
     setCombatEvents((previous) => ({ events, key: (previous?.key ?? 0) + 1 }));

@@ -13,6 +13,7 @@ import {
   clampTarget,
   headingFromOrbit,
   orbitFor,
+  panSensibility,
   reduceCamera,
   twistAngle,
   wheelZoom,
@@ -62,7 +63,7 @@ export class CameraRig {
     this.camera.upperBetaLimit = 1.35; // never below the ground
     this.camera.lowerRadiusLimit = MIN_DISTANCE;
     this.camera.wheelPrecision = 30;
-    this.camera.panningSensibility = 60;
+    // Panning speed follows the zoom (see update): the ground under the finger follows the finger.
     // Babylon keeps gliding after a drag, multiplying its effect; a shorter glide keeps orbiting controllable.
     this.camera.inertia = 0.6;
     this.camera.panningInertia = 0.6;
@@ -150,6 +151,7 @@ export class CameraRig {
    */
   update(dt: number): boolean {
     const camera = this.camera;
+    camera.panningSensibility = panSensibility(camera.radius, camera.fov, this.canvas.clientHeight, camera.panningInertia);
     const goal = cameraGoal(this.view);
     let moving = false;
 

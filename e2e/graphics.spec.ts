@@ -43,16 +43,25 @@ async function host(browser: Browser, options: Parameters<Browser['newContext']>
   return { dm, errors };
 }
 
-const graphics = (page: Page) => page.getByRole('combobox', { name: 'Graphics quality' });
+// Under ⚙ on the map (the label finds it even while the panel is closed).
+const graphics = (page: Page) => page.getByLabel('Graphics quality');
+
+/** Opens ⚙ and picks a graphics quality. */
+async function pick(page: Page, quality: string) {
+  const panel = page.getByRole('group', { name: 'Display settings' });
+  if (!(await panel.isVisible())) await page.getByRole('button', { name: 'Display settings' }).click();
+  await graphics(page).selectOption(quality);
+  await page.keyboard.press('Escape');
+}
 
 test('desktops start on High, and the choice is remembered', async ({ browser }) => {
   const { dm, errors } = await host(browser);
   await expect(graphics(dm)).toHaveValue('high');
   for (const quality of ['medium', 'low', 'high']) {
-    await graphics(dm).selectOption(quality);
+    await pick(dm, quality);
     await dm.waitForTimeout(300);
   }
-  await graphics(dm).selectOption('medium');
+  await pick(dm, 'medium');
   await dm.reload();
   await dm.getByLabel('Your name').fill('Dana');
   await dm.getByRole('button', { name: 'Host a game' }).click();
@@ -74,7 +83,7 @@ test('on a high-DPI screen, name tags sit over their creatures and tiles are pic
 }) => {
   const { dm, errors } = await host(browser, { deviceScaleFactor: 2 });
   for (const quality of ['high', 'medium', 'low']) {
-    await graphics(dm).selectOption(quality);
+    await pick(dm, quality);
     await dm.waitForTimeout(300);
     const tag = dm.getByTestId('token').first();
     const cell = await tag.getAttribute('data-cell');

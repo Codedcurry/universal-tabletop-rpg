@@ -96,6 +96,12 @@ A PC- and mobile-friendly take on Tabletop Simulator, built specifically for tab
 - Sprites use alpha testing: crisp edges, shadows in their shape, and see-through highlights no longer draw over them. Name tags are placed in CSS pixels, since the canvas may draw more pixels than that on high-DPI screens.
 - Each viewer picks the setting in the camera bar ("Graphics", ✨ on phones); it is saved in localStorage (`client/style/graphicsSetting.ts`). E2E tests start on Low through `storageState` (software rendering is slow); `e2e/graphics.spec.ts` tests the real defaults and every setting.
 
+### Mobile and display settings (step 9)
+- Tested on a real mid-range phone, including a 100 x 100 map: smooth.
+- ⚙ on the map (`DisplaySettingsMenu`, store in `client/ui/displaySettings.ts`): graphics quality, combat animations (Fast / Normal / Off: `timingFor` in shared/anim scales every timing; Off makes actions happen at once, numbers still show), and "Keep mobile screens awake" (`useWakeLock`, Screen Wake Lock API, re-requested when the tab is shown again). People with "reduce motion" on start with combat and dice animations off. Escape closes the panel and returns focus to ⚙ so Q/E reach the map.
+- Automatic step-down: `SlowFrameDetector` (shared/graphics) judges the median frame over ~3 s of continuous drawing (the view says whether a frame directly followed another, so idle pauses never count); slower than 25 fps lowers the setting one level and shows a note. If the person raises it by hand after that, it stays.
+- Panning grabs the map: `panSensibility` (shared/camera) sets Babylon's pan speed from the zoom distance, field of view, view height, and pan inertia, so the ground under the pointer follows it. It depends only on the zoom, not the world's size. The canvas carries `data-animating` while creatures act.
+
 ### Known gaps (planned, not built yet)
 - Saved favorite rolls per character (optional in the spec) are not built yet. Dice and combat sounds are step 11.
 - The DM's session lives in memory: reloading the DM's page ends the game (storage is step 12). Use Export to keep a map.

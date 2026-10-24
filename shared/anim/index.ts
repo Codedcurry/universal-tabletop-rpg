@@ -23,8 +23,23 @@ export const CLIPS = [
 ] as const;
 export type Clip = (typeof CLIPS)[number];
 
+/** Combat animation timings, in milliseconds. */
+export interface AnimationTiming {
+  readonly walkStepMs: number;
+  readonly attackMs: number;
+  /** When the blow lands, from the start of the attack: arrows and spells travel. */
+  readonly impactMs: Readonly<Record<'melee' | 'ranged' | 'spell' | 'item', number>>;
+  readonly hitMs: number;
+  readonly dodgeMs: number;
+  readonly defendMs: number;
+  readonly downedMs: number;
+  readonly victoryMs: number;
+  /** Pause after the last blow before the winners celebrate. */
+  readonly victoryDelayMs: number;
+}
+
 /** All timings in milliseconds, in one place for tuning during playtesting. */
-export const DEFAULT_TIMING = {
+export const DEFAULT_TIMING: AnimationTiming = {
   walkStepMs: 220,
   attackMs: 500,
   /** When the blow lands, from the start of the attack: arrows and spells travel. */
@@ -36,8 +51,35 @@ export const DEFAULT_TIMING = {
   victoryMs: 700,
   /** Pause after the last blow before the winners celebrate. */
   victoryDelayMs: 150,
-} as const;
-export type AnimationTiming = typeof DEFAULT_TIMING;
+};
+
+/** How fast combat plays out: a per-device preference, like the dice speed. */
+export type AnimationSpeed = 'fast' | 'normal' | 'off';
+export const ANIMATION_SPEEDS: readonly AnimationSpeed[] = ['fast', 'normal', 'off'];
+const SPEED_FACTOR: Record<AnimationSpeed, number> = { fast: 0.5, normal: 1, off: 0 };
+
+/** The timing for a speed: every duration scaled; "off" makes everything happen at once. */
+export function timingFor(speed: AnimationSpeed): AnimationTiming {
+  if (speed === 'normal') return DEFAULT_TIMING;
+  const f = SPEED_FACTOR[speed];
+  const t = DEFAULT_TIMING;
+  return {
+    walkStepMs: t.walkStepMs * f,
+    attackMs: t.attackMs * f,
+    impactMs: { melee: t.impactMs.melee * f, ranged: t.impactMs.ranged * f, spell: t.impactMs.spell * f, item: t.impactMs.item * f },
+    hitMs: t.hitMs * f,
+    dodgeMs: t.dodgeMs * f,
+    defendMs: t.defendMs * f,
+    downedMs: t.downedMs * f,
+    victoryMs: t.victoryMs * f,
+    victoryDelayMs: t.victoryDelayMs * f,
+  };
+}
+
+/** People who ask their device for reduced motion start with combat animations off. */
+export function defaultAnimationSpeed(prefersReducedMotion: boolean): AnimationSpeed {
+  return prefersReducedMotion ? 'off' : 'normal';
+}
 
 export interface AnimationStep {
   readonly combatantId: string;

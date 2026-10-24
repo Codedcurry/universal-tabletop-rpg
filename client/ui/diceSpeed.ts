@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import type { RollSpeed } from '@shared/dice';
+import { prefersReducedMotion } from './displaySettings';
 
 // The dice animation speed is a per-device preference: remembered in this
 // browser, shared by the dice panel (which sets it) and the animation.
@@ -10,10 +11,12 @@ const SPEEDS: readonly RollSpeed[] = ['fast', 'normal', 'dramatic', 'off'];
 function load(): RollSpeed {
   try {
     const stored = localStorage.getItem(KEY) as RollSpeed | null;
-    return stored && SPEEDS.includes(stored) ? stored : 'normal';
+    if (stored && SPEEDS.includes(stored)) return stored;
   } catch {
-    return 'normal';
+    // storage blocked: use the default
   }
+  // People who ask their device for reduced motion start with dice animations off.
+  return prefersReducedMotion() ? 'off' : 'normal';
 }
 
 let speed = load();

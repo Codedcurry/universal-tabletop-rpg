@@ -227,3 +227,51 @@ test('a few wheel notches zoom a long way', async ({ browser }) => {
   // Zoomed in: the same distance on screen now spans far fewer tiles.
   expect(after).toBeLessThanOrEqual(Math.floor(before * 0.7));
 });
+
+test('dragging grabs the map: the ground under the pointer follows it, zoomed in or out', async ({ browser }) => {
+  const dm = await host(browser);
+  // A big world, so the view has room to move.
+  await dm.page.getByRole('button', { name: 'New map' }).click();
+  const dialog = dm.page.getByRole('group', { name: 'New map' });
+  await dialog.getByLabel('Width').fill('40');
+  await dialog.getByLabel('Height').fill('30');
+  await dialog.getByRole('button', { name: 'Create' }).click();
+  const context = await browser.newContext();
+  openContexts.push(context);
+  const page = await context.newPage();
+  await page.goto(dm.link);
+  await page.getByLabel('Your name').fill('Ana');
+  await page.getByRole('button', { name: 'Join' }).click();
+  await expect(page.getByTestId('map-summary')).toContainText('1200 tiles');
+
+  const cellAt = async (px: number, py: number) => {
+    await page.mouse.move(px - 1, py);
+    await page.mouse.move(px, py);
+    const match = (await page.getByTestId('tile-info').textContent())?.match(/\((-?\d+), (-?\d+)\)/);
+    return { q: Number(match?.[1]), r: Number(match?.[2]) };
+  };
+  const { x, y, box } = await center(page);
+  // Short drags that keep the view inside the world (the camera stops at its edge).
+  const left = { x: x - box.width * 0.08, y };
+  const right = { x: x + box.width * 0.08, y };
+
+  for (const zoom of ['zoomed out', 'zoomed in']) {
+    if (zoom === 'zoomed in') {
+      await page.mouse.move(x, y);
+      for (let i = 0; i < 6; i++) await page.mouse.wheel(0, -100);
+    }
+    // Right, then back left.
+    const [from, to] = zoom === 'zoomed out' ? [left, right] : [right, left];
+    await settled(page);
+    const grabbed = await cellAt(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(to.x, to.y, { steps: 12 });
+    await page.mouse.up();
+    await page.mouse.move(0, 0);
+    await settled(page);
+    const under = await cellAt(to.x, to.y);
+    // The same tile (give or take one, for the glide).
+    expect(Math.abs(under.q - grabbed.q), `${zoom}: grabbed ${JSON.stringify(grabbed)}, now under ${JSON.stringify(under)}`).toBeLessThanOrEqual(1);
+    expect(Math.abs(under.r - grabbed.r), zoom).toBeLessThanOrEqual(1);
+  }
+});

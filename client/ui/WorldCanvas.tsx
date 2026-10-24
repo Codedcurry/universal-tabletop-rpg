@@ -1,13 +1,14 @@
 import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 'react';
 import type { CameraCommand, CameraView } from '@shared/camera';
 import type { CombatEvent, CombatState } from '@shared/combat';
-import { GRAPHICS_QUALITIES, type GraphicsQuality } from '@shared/graphics';
+import { lowerQuality } from '@shared/graphics';
 import type { GameSystem } from '@shared/system';
 import type { Cell } from '@shared/grid';
 import type { MapData, WorldMap } from '@shared/map';
 import { type HighlightKind, type TilePointer, WorldView } from '../render/WorldView';
-import { loadGraphicsQuality, saveGraphicsQuality } from '../style/graphicsSetting';
 import { placeholderStyle } from '../style/stylePack';
+import { DisplaySettingsMenu } from './DisplaySettingsMenu';
+import { setDisplaySetting, useDisplaySettings } from './displaySettings';
 
 interface Props {
   readonly map: MapData | null;
@@ -38,7 +39,7 @@ interface Props {
   onPointer(pointer: TilePointer): void;
 }
 
-const QUALITY_LABELS: Record<GraphicsQuality, string> = { low: 'Low', medium: 'Medium', high: 'High' };
+const QUALITY_NAMES = { low: 'Low', medium: 'Medium', high: 'High' } as const;
 
 const NONE: readonly Cell[] = [];
 const NO_TARGETS: readonly string[] = [];
@@ -86,8 +87,31 @@ export function WorldCanvas(props: Props) {
   }, []);
 
   // How much 2.5D polish to draw: this viewer's choice, kept on this device.
-  const [quality, setQuality] = useState<GraphicsQuality>(loadGraphicsQuality);
+  const { graphics: quality, combatSpeed } = useDisplaySettings();
   useEffect(() => viewRef.current?.setGraphics(quality), [quality]);
+  useEffect(() => viewRef.current?.setAnimationSpeed(combatSpeed), [combatSpeed]);
+
+  // When frames stay slow, step the graphics down and say so. Once someone raises
+  // them again by hand after that, they know best: no more automatic changes.
+  const [lowered, setLowered] = useState<string | null>(null);
+  const autoAllowed = useRef(true);
+  const autoLowered = useRef(false);
+  const qualityRef = useRef(quality);
+  qualityRef.current = quality;
+  useEffect(() => {
+    viewRef.current?.onSlowFrames(() => {
+      const next = autoAllowed.current ? lowerQuality(qualityRef.current) : null;
+      if (!next) return;
+      autoLowered.current = true;
+      setDisplaySetting('graphics', next);
+      setLowered(`Graphics lowered to ${QUALITY_NAMES[next]} to keep things smooth. Change it under ⚙.`);
+    });
+  }, []);
+  useEffect(() => {
+    if (!lowered) return;
+    const timer = setTimeout(() => setLowered(null), 8000);
+    return () => clearTimeout(timer);
+  }, [lowered]);
 
   useEffect(() => viewRef.current?.setMap(map), [map]);
   useEffect(() => viewRef.current?.setEditing(editing), [editing]);
@@ -191,26 +215,18 @@ export function WorldCanvas(props: Props) {
             <span className="short"> all</span>
           </button>
         )}
-        <label className="graphics-setting" title="Bloom, depth of field, shadows, and glows. Lower is smoother on phones.">
-          <span className="long">Graphics</span>
-          <span className="short" aria-hidden="true">✨</span>
-          <select
-            aria-label="Graphics quality"
-            value={quality}
-            onChange={(event) => {
-              const next = event.target.value as GraphicsQuality;
-              setQuality(next);
-              saveGraphicsQuality(next);
-            }}
-          >
-            {GRAPHICS_QUALITIES.map((entry) => (
-              <option key={entry} value={entry}>
-                {QUALITY_LABELS[entry]}
-              </option>
-            ))}
-          </select>
-        </label>
+        <DisplaySettingsMenu
+          onGraphicsPicked={() => {
+            if (autoLowered.current) autoAllowed.current = false;
+            setLowered(null);
+          }}
+        />
       </div>
+      {lowered && (
+        <p className="graphics-note" role="status">
+          {lowered}
+        </p>
+      )}
     </div>
   );
 }

@@ -211,3 +211,17 @@ export function wheelZoom(distance: number, deltaPixels: number, min: number, ma
   const next = distance * (1 + ZOOM_PER_NOTCH) ** (deltaPixels / 100);
   return Math.min(max, Math.max(min, next));
 }
+
+/**
+ * Drag-to-pan sensitivity (pixels per world unit, as Babylon takes it) that
+ * makes the ground follow the finger: a drag across the screen moves the view
+ * by what the screen shows at the point the camera looks at. Zoomed out, each
+ * pixel covers more ground, so panning speeds up by just as much; the feel
+ * depends on what is on screen, never on how big the world is. `inertia` is
+ * the camera's glide after each drag, which adds 1 / (1 - inertia) on top.
+ */
+export function panSensibility(distance: number, fov: number, viewportHeight: number, inertia: number): number {
+  const visible = 2 * distance * Math.tan(fov / 2); // world units across the screen's height
+  const height = viewportHeight > 0 ? viewportHeight : 1;
+  return Math.max(1e-6, height / visible / (1 - inertia));
+}

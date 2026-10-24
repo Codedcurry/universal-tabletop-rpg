@@ -435,23 +435,6 @@ button[aria-expanded='true'] {
   min-width: 40px;
   font-size: 20px;
 }
-/* The graphics setting sits at the far end of the camera bar. */
-.graphics-setting {
-  margin: 0 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 4px 0 10px;
-  border-radius: 8px;
-  background: rgba(31, 27, 43, 0.85);
-  font-size: 14px;
-}
-.graphics-setting select {
-  min-height: 40px;
-  width: auto;
-  background: transparent;
-  border: none;
-}
 .camera-controls button[aria-pressed='true'] {
   background: var(--accent);
   border-color: var(--accent);
@@ -1163,4 +1146,48 @@ button.danger {
   border: 1px solid var(--accent);
   color: var(--accent);
   font-size: 14px;
+}
+
+/* The ⚙ display settings at the far end of the camera bar. */
+.display-settings {
+  position: relative;
+  margin-left: auto;
+}
+.display-settings > button {
+  min-width: 40px;
+  font-size: 18px;
+}
+.display-settings-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 5;
+  min-width: 220px;
+  margin: 0;
+  padding: 10px 12px;
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(20, 18, 28, 0.96);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+.display-settings-panel[hidden] {
+  display: none;
+}
+.display-settings-panel label {
+  margin: 0;
+}
+/* Says when the graphics were lowered automatically. */
+.graphics-note {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  max-width: min(320px, calc(100% - 140px));
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(20, 18, 28, 0.92);
+  border: 1px solid var(--accent);
+  font-size: 13px;
 }

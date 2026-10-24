@@ -6,10 +6,12 @@ import {
   CLIPS,
   type Clip,
   DEFAULT_TIMING,
+  defaultAnimationSpeed,
   type FloatingText,
   proceduralPose,
   resolveClip,
   scheduleCombatEvents,
+  timingFor,
 } from './index';
 
 // Turns the events of one combat action into a timeline: which creature plays
@@ -256,5 +258,32 @@ describe('proceduralPose', () => {
   it('clamps progress outside 0..1', () => {
     expect(proceduralPose('lunge', -1)).toEqual(proceduralPose('lunge', 0));
     expect(proceduralPose('tipOver', 5)).toEqual(proceduralPose('tipOver', 1));
+  });
+});
+
+describe('combat animation speed', () => {
+  const action = [used('melee'), rolled(true), damaged(4, 4)];
+
+  it('plays at normal speed with the default timing', () => {
+    expect(timingFor('normal')).toEqual(DEFAULT_TIMING);
+  });
+
+  it('plays faster on fast, keeping the same order', () => {
+    const normal = scheduleCombatEvents(action, context, timingFor('normal'));
+    const fast = scheduleCombatEvents(action, context, timingFor('fast'));
+    expect(fast.duration).toBeLessThan(normal.duration);
+    expect(fast.duration).toBeGreaterThan(0);
+    expect(fast.steps.map((step) => step.clip)).toEqual(normal.steps.map((step) => step.clip));
+  });
+
+  it('skips motion when off: everything happens at once, and the numbers still show', () => {
+    const off = scheduleCombatEvents(action, context, timingFor('off'));
+    expect(off.duration).toBe(0);
+    expect(texts(off)).toEqual(['goblin:-4@0']);
+  });
+
+  it('starts off for people who ask their device for reduced motion', () => {
+    expect(defaultAnimationSpeed(true)).toBe('off');
+    expect(defaultAnimationSpeed(false)).toBe('normal');
   });
 });

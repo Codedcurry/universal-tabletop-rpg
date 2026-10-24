@@ -117,3 +117,59 @@ export function blurAt(lens: Lens, distance: number): number {
   const precalculated = (aperture * lens.focalLength) / (lens.focusDistance - lens.focalLength);
   return Math.min(1, Math.abs((precalculated * (lens.focusDistance - depth)) / depth));
 }
+
+// ---------------------------------------------------------------------------
+// Automatic step-down
+
+/** One level lower, or null at the bottom. */
+export function lowerQuality(quality: GraphicsQuality): GraphicsQuality | null {
+  const index = GRAPHICS_QUALITIES.indexOf(quality);
+  return index > 0 ? (GRAPHICS_QUALITIES[index - 1] ?? null) : null;
+}
+
+/** Judge only after this much time spent drawing. */
+const JUDGE_AFTER_MS = 3000;
+/** Slower than this (25 frames a second) is too slow. */
+const SLOW_FRAME_MS = 40;
+
+/**
+ * Watches how long drawn frames take, to lower the graphics when the device
+ * can't keep up. It judges the typical (median) frame over a few seconds of
+ * drawing, so a few hitches don't count, and neither does idle time: the
+ * view only draws when something changes, and says whether a frame directly
+ * follows another (a frame after a pause measures the pause, not the device).
+ */
+export class SlowFrameDetector {
+  private last: number | null = null;
+  private samples: number[] = [];
+  private total = 0;
+
+  /**
+   * Records a drawn frame at `now` (ms); `continued`: the previous frame was drawn
+   * too, with no idle pause between. True means: too slow, lower the graphics.
+   */
+  frame(now: number, continued: boolean): boolean {
+    const gap = this.last === null || !continued ? null : now - this.last;
+    this.last = now;
+    if (gap === null) return false;
+    this.samples.push(gap);
+    this.total += gap;
+    if (this.total < JUDGE_AFTER_MS) return false;
+    const sorted = [...this.samples].sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
+    if (median > SLOW_FRAME_MS) {
+      this.reset();
+      return true;
+    }
+    // Keep judging the most recent few seconds.
+    while (this.total > JUDGE_AFTER_MS && this.samples.length > 1) this.total -= this.samples.shift() ?? 0;
+    return false;
+  }
+
+  /** Forgets everything (e.g. after the setting changes). */
+  reset(): void {
+    this.samples = [];
+    this.total = 0;
+    this.last = null;
+  }
+}

@@ -13,7 +13,9 @@ import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import type { Scene } from '@babylonjs/core/scene';
 import {
   type AnimationStep,
+  type AnimationTiming,
   type Clip,
+  DEFAULT_TIMING,
   type FloatingText,
   type Pose,
   proceduralPose,
@@ -93,6 +95,8 @@ export class TokenLayer {
   private combat: CombatState | null = null;
   private topDown = false;
   private targets = new Set<string>();
+  /** How fast actions play out (the viewer's combat animation setting). */
+  private timing: AnimationTiming = DEFAULT_TIMING;
 
   constructor(
     private readonly scene: Scene,
@@ -139,6 +143,10 @@ export class TokenLayer {
     }
   }
 
+  setTiming(timing: AnimationTiming): void {
+    this.timing = timing;
+  }
+
   /** Creatures the current ability can target: their name tags become buttons. */
   setTargets(ids: readonly string[], intent: 'harm' | 'help' = 'harm'): void {
     this.targets = new Set(ids);
@@ -171,7 +179,7 @@ export class TokenLayer {
           sideOf: (id) => combat.combatants[id]?.side ?? '',
           isStanding: (id) => (combat.combatants[id]?.hp ?? 0) > 0,
           conditionName: (id) => system.conditions.find((condition) => condition.id === id)?.name ?? id,
-        })
+        }, this.timing)
       : null;
 
     for (const [id, combatant] of Object.entries(combat.combatants)) {
