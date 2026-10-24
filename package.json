@@ -1,5 +1,5 @@
 {
-  "name": "tabletop-rpg",
+  "name": "universal-tabletop-rpg",
   "version": "1.0.0",
   "description": "Browser-based tabletop RPG tool (2.5D, peer-to-peer)",
   "scripts": {
