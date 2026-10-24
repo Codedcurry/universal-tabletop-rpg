@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { JoinedGame } from '../net/transport';
 import { CombatPanel } from './CombatPanel';
 import { LogPanel } from './LogPanel';
+import { MapViewer } from './MapViewer';
 import { Players } from './Players';
 
 function statusText(game: JoinedGame, code: string): string {
@@ -45,6 +46,13 @@ export function PlayerView({ game, code, error }: { readonly game: JoinedGame; r
           </p>
         )}
       </header>
+
+      {state && (
+        <section className="card">
+          <h2>Map</h2>
+          <MapViewer map={state.map} />
+        </section>
+      )}
 
       {state && (
         <div className="columns">

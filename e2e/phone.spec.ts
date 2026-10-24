@@ -33,6 +33,11 @@ test('home, DM, and player screens fit a phone', async ({ browser }) => {
   await ana.getByRole('button', { name: 'Join' }).click();
   await expect(ana.getByTestId('status')).toHaveText(/connected/i);
 
+  await dm.getByRole('button', { name: 'Generate' }).click();
+  await dm.getByRole('group', { name: 'Generate a map' }).getByRole('button', { name: 'Create' }).click();
+  await expect(ana.getByTestId('map-summary')).toContainText('tiles');
+  await expect(ana.getByTestId('world-canvas')).toBeVisible();
+
   await dm.getByRole('button', { name: 'Start demo fight' }).click();
   await expect(ana.getByTestId('turn-banner')).toContainText('Round 1');
   await ana.getByLabel('Dice to roll').fill('4d6kh3 + 2 coins');
@@ -43,4 +48,5 @@ test('home, DM, and player screens fit a phone', async ({ browser }) => {
   await expectNoSidewaysScroll(ana);
   await screenshot(dm, 'phone-dm');
   await screenshot(ana, 'phone-player');
+  await Promise.all([dmContext.close(), anaContext.close()]);
 });

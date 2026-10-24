@@ -10,6 +10,7 @@ import {
 } from '../combat';
 import { DiceNotationError, RollReplayError, type RollResult, replayRoll, roll } from '../dice';
 import type { Cell } from '../grid';
+import { type MapPatch, applyPatch, isEmptyPatch } from '../editor';
 import { type MapData, type WorldMap, createWorldMap } from '../map';
 import type { RandomSource } from '../random';
 import { type CreatureSheet, type GameSystem, computeCreature, validateGameSystem } from '../system';
@@ -206,6 +207,18 @@ export class HostSession {
   setMap(data: MapData): void {
     this.worldMap = createWorldMap(data);
     this.publish({ kind: 'map', map: this.worldMap.toData() });
+  }
+
+  /**
+   * A live edit from the map editor. Validated first (throws MapError and
+   * changes nothing if the result would be invalid), then sent to players.
+   */
+  editMap(patch: MapPatch): void {
+    const current = this.state.map;
+    if (!current) throw new Error('Set a map before editing it');
+    if (isEmptyPatch(patch)) return;
+    this.worldMap = createWorldMap(applyPatch(current, patch));
+    this.publish({ kind: 'mapPatch', patch });
   }
 
   /** A combat setup for a player's synced character. */

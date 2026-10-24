@@ -2,11 +2,13 @@ import { type DataConnection, Peer } from 'peerjs';
 import type { CombatEvent } from '@shared/combat';
 import {
   ClientSession,
+  FrameAssembler,
   HEARTBEAT_INTERVAL_MS,
   HostSession,
   createRoomCode,
   reconnectDelay,
   roomPeerId,
+  splitIntoFrames,
 } from '@shared/net';
 import type { CreatureSheet } from '@shared/system';
 import { secureRandom } from '../random';
@@ -19,6 +21,17 @@ const CONNECTION = { serialization: 'json', reliable: true } as const;
 /** Give a rejection message time to arrive before hanging up. */
 const CLOSE_DELAY_MS = 500;
 const OPEN_TIMEOUT_MS = 10_000;
+/** Player requests are always small; anything bigger is junk or hostile. */
+const MAX_FROM_PLAYER_CHARS = 200_000;
+/** The DM sends whole maps and logs. */
+const MAX_FROM_DM_CHARS = 20_000_000;
+
+let nextFrameId = 1;
+
+/** Sends a message, split into frames when it's over the 16 KB PeerJS limit. */
+function sendFramed(connection: DataConnection, message: unknown): void {
+  for (const part of splitIntoFrames(message, nextFrameId++)) connection.send(part);
+}
 
 export interface HostedGame {
   readonly session: HostSession;
@@ -40,7 +53,10 @@ export function hostGame(callbacks: HostCallbacks, attempt = 0): Promise<HostedG
     let opened = false;
 
     const session = new HostSession({
-      send: (connectionId, message) => connections.get(connectionId)?.send(message),
+      send: (connectionId, message) => {
+        const connection = connections.get(connectionId);
+        if (connection) sendFramed(connection, message);
+      },
       disconnect: (connectionId) => {
         const connection = connections.get(connectionId);
         connections.delete(connectionId);
@@ -67,11 +83,15 @@ export function hostGame(callbacks: HostCallbacks, attempt = 0): Promise<HostedG
 
     peer.on('connection', (connection) => {
       const id = connection.connectionId;
+      const assembler = new FrameAssembler({ maxMessageChars: MAX_FROM_PLAYER_CHARS });
       connection.on('open', () => {
         connections.set(id, connection);
         session.connected(id);
       });
-      connection.on('data', (data) => session.received(id, data));
+      connection.on('data', (data) => {
+        const message = assembler.receive(data);
+        if (message !== null) session.received(id, message);
+      });
       const closed = () => {
         if (connections.get(id) !== connection) return;
         connections.delete(id);
@@ -124,7 +144,7 @@ export function joinGame(options: JoinOptions): JoinedGame {
 
   const session = new ClientSession({
     send: (message) => {
-      if (connection?.open) connection.send(message);
+      if (connection?.open) sendFramed(connection, message);
     },
     token: options.token,
     name: options.name,
@@ -170,6 +190,7 @@ export function joinGame(options: JoinOptions): JoinedGame {
       (ready) => {
         if (left) return;
         const next = ready.connect(roomPeerId(options.code), CONNECTION);
+        const assembler = new FrameAssembler({ maxMessageChars: MAX_FROM_DM_CHARS });
         connection = next;
         const timeout = setTimeout(() => {
           if (!next.open) lost(next);
@@ -179,7 +200,10 @@ export function joinGame(options: JoinOptions): JoinedGame {
           attempt = 0;
           session.opened();
         });
-        next.on('data', (data) => session.received(data));
+        next.on('data', (data) => {
+          const message = assembler.receive(data);
+          if (message !== null) session.received(message);
+        });
         next.on('close', () => lost(next));
         next.on('error', () => lost(next));
       },

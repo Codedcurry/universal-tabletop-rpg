@@ -5,6 +5,7 @@ import { demoFight, demoMap, demoSystem } from '../demo';
 import type { HostedGame } from '../net/transport';
 import { CombatPanel } from './CombatPanel';
 import { LogPanel } from './LogPanel';
+import { MapEditor } from './MapEditor';
 import { Players } from './Players';
 
 const ROLL_MODES: { value: RollMode; label: string }[] = [
@@ -39,7 +40,7 @@ export function HostView({ game }: { readonly game: HostedGame }) {
   function startFight() {
     attempt(() => {
       session.setSystem(demoSystem);
-      session.setMap(demoMap);
+      if (!session.snapshot().map) session.setMap(demoMap);
       session.startCombat(demoFight(session));
     });
   }
@@ -77,6 +78,11 @@ export function HostView({ game }: { readonly game: HostedGame }) {
           </button>
         </div>
       </header>
+
+      <section className="card">
+        <h2>Map</h2>
+        <MapEditor session={session} />
+      </section>
 
       <div className="columns">
         <section className="card">

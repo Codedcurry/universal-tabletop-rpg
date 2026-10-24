@@ -1,5 +1,6 @@
 import type { CombatAction, CombatEvent, CombatState } from '../combat';
 import type { RollResult } from '../dice';
+import type { MapPatch } from '../editor';
 import type { Cell } from '../grid';
 import type { MapData } from '../map';
 import type { CreatureSheet, GameSystem } from '../system';
@@ -82,6 +83,8 @@ export type SessionUpdate =
   | { readonly kind: 'settings'; readonly dmTitle: string; readonly rollMode: RollMode }
   | { readonly kind: 'system'; readonly system: GameSystem | null }
   | { readonly kind: 'map'; readonly map: MapData | null }
+  /** A live edit: just the changed tiles and walls. */
+  | { readonly kind: 'mapPatch'; readonly patch: MapPatch }
   | { readonly kind: 'combat'; readonly combat: CombatState | null; readonly events: readonly CombatEvent[] }
   | { readonly kind: 'log'; readonly entry: LogEntry };
 

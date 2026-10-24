@@ -1,3 +1,4 @@
+import { applyPatch } from '../editor';
 import { type LogEntry, MAX_SNAPSHOT_LOG, type ParticipantId, type SessionSnapshot, type SessionUpdate } from './protocol';
 
 // Shared by host and clients so both apply updates in exactly the same way.
@@ -46,6 +47,9 @@ export function applyUpdate(
       return { ...next, system: update.system };
     case 'map':
       return { ...next, map: update.map };
+    case 'mapPatch':
+      if (!snapshot.map) throw new Error('A map patch arrived before any map');
+      return { ...next, map: applyPatch(snapshot.map, update.patch) };
     case 'combat':
       return { ...next, combat: update.combat };
     case 'log':

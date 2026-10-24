@@ -1,10 +1,18 @@
-import { type Browser, type Page, expect, test } from '@playwright/test';
+import { type Browser, type BrowserContext, type Page, expect, test } from '@playwright/test';
 
 // Each participant gets its own browser context: separate storage, separate
 // WebRTC peer, exactly like separate devices.
 
+// Every browser context a test opens is closed afterwards, so idle sessions
+// from earlier tests don't keep running (and slowing everything down).
+const openContexts: BrowserContext[] = [];
+test.afterEach(async () => {
+  await Promise.all(openContexts.splice(0).map((context) => context.close()));
+});
+
 async function host(browser: Browser, name = 'Dana') {
   const context = await browser.newContext();
+  openContexts.push(context);
   const page = await context.newPage();
   await page.goto('/');
   await page.getByLabel('Your name').fill(name);
@@ -16,6 +24,7 @@ async function host(browser: Browser, name = 'Dana') {
 
 async function join(browser: Browser, link: string, name: string) {
   const context = await browser.newContext();
+  openContexts.push(context);
   const page = await context.newPage();
   await page.goto(link);
   await page.getByLabel('Your name').fill(name);

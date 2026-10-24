@@ -53,8 +53,19 @@ A PC- and mobile-friendly take on Tabletop Simulator, built specifically for tab
 - Player characters are rewritten to id `pc-<playerId>`; players control their own character plus anything the DM grants.
 - The current UI is a functional text "table" (lobby, players, fight, log) to be replaced by the rendered world in steps 5–7. `client/demo.ts` holds placeholder content.
 
+### Map editor (`shared/editor/` + `client/ui/MapEditor.tsx`)
+- Maps: tiles have integer heights 0–30, optional `terrain` (default `grass`, cosmetic; looks come from the style pack) and `blocked`. At most 10,000 tiles. `toData()` is canonical (tiles by row then column, walls in fixed order), so equal maps give equal data. Imported files go through `validateMapData`.
+- Every change is a `MapPatch` (only the tiles/walls that differ). Tool actions are `MapEdit`s turned into patches; `diffMaps`/`applyPatch` power undo/redo (`recordChange`, one undo step per drag stroke) and live sync (`HostSession.editMap` publishes a `mapPatch` update). Replacing the map with a different grid type uses `setMap` and resets history.
+- Shapes: brush (covers every cell along a fast drag), line, rectangle (on-screen rectangle, hex rows offset), circle, ring (outline only), fill. Fill spreads only through shared edges like a paint bucket and never crosses walls: on tiles it covers the matching area (same height/terrain/blocked); with Add tiles it fills an enclosed empty area (`fillEmptyCells`) and refuses open ones. Hovering previews what the brush or fill will change. Walls go on the edge nearest the pointer (`edgeNeighbor`; square grids only use the four sides).
+- `convertGrid` switches an existing map between hex and square, keeping each tile's on-screen column/row; walls that no longer sit on an edge are dropped and reported.
+- Generation: seeded value noise (`seededRandom`, never used for dice). Presets: flat, hills (stone on top quarter), islands (sea border, deep water is `blocked`).
+- Rendering (`client/render/WorldView.ts`): one mesh per terrain with a thin instance per tile; thin instances need `thinInstanceRefreshBoundingInfo` or they get culled. Renders only when something changed (map, highlight, camera, or shaders still compiling). The camera fits the map by projecting its corners. Picking is `rayPick` (shared/map): it walks the pointer's line of sight over the grid, because Babylon mesh picking gave wrong cells through holes. Empty space counts as ground, so the pointer reaches cells outside the world (for Add tiles). Edits never move the camera; it frames the map on first load, grid change, a new/generated/imported map, or "Re-center view". Babylon focuses the canvas on press; that focus is patched to `preventScroll` so the page doesn't jump. The wheel and middle-click are kept from scrolling the page.
+- Edit-mode controls: left = tool, right-drag = pan, middle-drag = turn, wheel = zoom. Touch screens get a "Touch: editing / moving view" toggle.
+- Messages over PeerJS's 16 KB limit are split into frames (`shared/net/framing.ts`) and reassembled with size caps (200 KB from players, 20 MB from the DM).
+
 ### Known gaps (planned, not built yet)
-- The DM's session lives in memory: reloading the DM's page ends the game (storage is step 12).
+- The DM's session lives in memory: reloading the DM's page ends the game (storage is step 12). Use Export to keep a map.
+- Creatures aren't drawn on the map yet (tokens are step 7); the camera is a basic orbit camera until step 6.
 - No TURN relay configured yet; players on strict networks (some mobile carriers) may fail to connect. See `.env.example`.
 - DM overrides and house rules (build step 15) — the engine currently only enforces.
 - Line of sight for targeting (step 10); range is grid distance only.

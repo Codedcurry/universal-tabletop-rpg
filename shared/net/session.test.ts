@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CombatAction } from '../combat';
+import { applyEdit, diffMaps } from '../editor';
 import { createWorldMap, rectangleTiles, type MapData } from '../map';
 import type { CreatureSheet } from '../system';
 import { skirmish } from '../system/samples/skirmish';
@@ -536,5 +537,64 @@ describe('heartbeat', () => {
     network.flush();
     network.advance(HEARTBEAT_TIMEOUT_MS - 1);
     expect(ana.session.isStale(network.now())).toBe(false);
+  });
+});
+
+describe('live map editing', () => {
+  const raiseCorner = (data: MapData) =>
+    diffMaps(data, applyEdit(data, { type: 'raise', cells: [{ q: 0, r: 0 }, { q: 1, r: 0 }], amount: 2 }));
+
+  it("sends the DM's edits to players as small patches", () => {
+    const network = createTestNetwork();
+    const ana = network.join('Ana');
+    network.host.setMap(map);
+    network.flush();
+    const sent: string[] = [];
+    network.intercept((envelope) => {
+      if (envelope.direction === 'toClient' && envelope.data) sent.push(envelope.data);
+      return 'deliver';
+    });
+    network.host.editMap(raiseCorner(network.host.snapshot().map as MapData));
+    network.flush();
+    expect(ana.session.state?.map).toEqual(network.host.snapshot().map);
+    expect(createWorldMap(ana.session.state?.map as MapData).tile({ q: 0, r: 0 })?.height).toBe(2);
+    // A patch, not the whole 49-tile map.
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toContain('"mapPatch"');
+    expect(sent[0]?.length).toBeLessThan(400);
+    expectInSync(network, ana);
+  });
+
+  it('refuses edits before there is a map', () => {
+    const network = createTestNetwork();
+    expect(() => network.host.editMap(raiseCorner(map))).toThrow();
+  });
+
+  it('refuses an invalid patch and changes nothing', () => {
+    const network = createTestNetwork();
+    network.host.setMap(map);
+    const before = network.host.snapshot();
+    const bad = { tiles: [{ q: 0, r: 0, height: 999 }], removeTiles: [], addWalls: [], removeWalls: [] };
+    expect(() => network.host.editMap(bad)).toThrow();
+    expect(network.host.snapshot()).toBe(before);
+  });
+
+  it('ignores an empty patch', () => {
+    const network = createTestNetwork();
+    network.host.setMap(map);
+    const version = network.host.snapshot().version;
+    network.host.editMap(diffMaps(map, map));
+    expect(network.host.snapshot().version).toBe(version);
+  });
+
+  it('applies the rules to the edited map during combat', () => {
+    const network = createTestNetwork();
+    const ana = network.join('Ana', { character: anaSheet });
+    const characterId = setupCombat(network, ana);
+    const current = network.host.snapshot().map as MapData;
+    network.host.editMap(diffMaps(current, applyEdit(current, { type: 'setBlocked', cells: [{ q: 1, r: 3 }], blocked: true })));
+    ana.session.act({ type: 'move', actorId: characterId, to: { q: 1, r: 3 } });
+    network.flush();
+    expect(ana.failures).toEqual([expect.stringMatching(/reach/i)]);
   });
 });

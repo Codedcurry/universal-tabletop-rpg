@@ -85,3 +85,22 @@ export function recordDraws(source: RandomSource): { random: RandomSource; draws
     draws: () => [...draws],
   };
 }
+
+/**
+ * Deterministic pseudo-random numbers from a seed (mulberry32), so the same
+ * seed builds the same map on every device. Fine for maps; never for dice.
+ */
+export function seededRandom(seed: number): RandomSource {
+  let state = Math.trunc(seed) >>> 0;
+  return {
+    nextInt(maxExclusive) {
+      assertValidMax(maxExclusive);
+      state = (state + 0x6d2b79f5) >>> 0;
+      let t = state;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      const unit = ((t ^ (t >>> 14)) >>> 0) / UINT32_RANGE;
+      return Math.floor(unit * maxExclusive);
+    },
+  };
+}

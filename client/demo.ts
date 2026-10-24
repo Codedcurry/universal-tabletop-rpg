@@ -1,29 +1,18 @@
 import { type CombatantSetup, setupFromMonster } from '@shared/combat';
-import type { Cell } from '@shared/grid';
-import { type MapData, rectangleTiles } from '@shared/map';
+import { blankMap } from '@shared/editor';
+import { type Cell, createGrid } from '@shared/grid';
+import type { MapData } from '@shared/map';
 import type { HostSession } from '@shared/net';
 import type { CreatureSheet } from '@shared/system';
 import { skirmish } from '@shared/system/samples/skirmish';
 
-// Placeholder content until the map editor (step 5) and character creation
-// (step 14) exist: a flat hex field, a stock character, and two goblins.
-
-const WIDTH = 8;
-const HEIGHT = 6;
+// Placeholder content until character creation (step 14) and proper
+// encounter setup exist: a stock character and two goblins.
 
 export const demoSystem = skirmish;
 
-export const demoMap: MapData = {
-  formatVersion: 1,
-  grid: 'hex',
-  tiles: rectangleTiles('hex', WIDTH, HEIGHT).map((cell) => ({ ...cell, height: 0 })),
-  walls: [],
-};
-
-/** Column/row on screen to an axial hex cell (rows are offset, see rectangleTiles). */
-function at(column: number, row: number): Cell {
-  return { q: column - Math.floor(row / 2), r: row };
-}
+/** Used when the DM starts a fight before making a map. */
+export const demoMap: MapData = blankMap('hex', 8, 6);
 
 export function demoCharacter(name: string): CreatureSheet {
   return {
@@ -35,15 +24,25 @@ export function demoCharacter(name: string): CreatureSheet {
   };
 }
 
-/** Every connected player with a character on the left, two goblins on the right. */
+/**
+ * Connected players on open tiles at the west edge of the map, two goblins
+ * at the east edge. Throws if the map doesn't have room.
+ */
 export function demoFight(host: HostSession): CombatantSetup[] {
-  const players = host
-    .snapshot()
-    .players.filter((player) => player.connected && player.character)
-    .slice(0, HEIGHT);
+  const { players, map } = host.snapshot();
+  if (!map) throw new Error('Make a map first');
+  const grid = createGrid(map.grid);
+  const open: Cell[] = map.tiles
+    .filter((tile) => !tile.blocked)
+    .sort((a, b) => grid.toWorld(a, 1).x - grid.toWorld(b, 1).x || a.r - b.r);
+  const heroes = players.filter((player) => player.connected && player.character);
+  if (open.length < heroes.length + 2) throw new Error('The map needs more open tiles for this fight');
+
+  const west = open.slice(0, heroes.length);
+  const east = open.slice(-2);
   return [
-    ...players.map((player, index) => host.playerSetup(player.id, at(1, index))),
-    setupFromMonster(skirmish, 'goblin', { id: 'goblin-1', side: 'monsters', position: at(WIDTH - 2, 1), name: 'Goblin 1' }),
-    setupFromMonster(skirmish, 'goblin', { id: 'goblin-2', side: 'monsters', position: at(WIDTH - 2, 3), name: 'Goblin 2' }),
+    ...heroes.map((player, index) => host.playerSetup(player.id, west[index] as Cell)),
+    setupFromMonster(skirmish, 'goblin', { id: 'goblin-1', side: 'monsters', position: east[0] as Cell, name: 'Goblin 1' }),
+    setupFromMonster(skirmish, 'goblin', { id: 'goblin-2', side: 'monsters', position: east[1] as Cell, name: 'Goblin 2' }),
   ];
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createCryptoRandom, recordDraws, scriptedRandom } from './index';
+import { createCryptoRandom, recordDraws, scriptedRandom, seededRandom } from './index';
 
 const UINT32_RANGE = 2 ** 32;
 
@@ -89,5 +89,33 @@ describe('recordDraws', () => {
     recorder.random.nextInt(4);
     recorder.draws().push(99);
     expect(recorder.draws()).toEqual([2]);
+  });
+});
+
+describe('seededRandom', () => {
+  // For procedural generation: the same seed must always build the same map,
+  // on every device. Not for dice: those use the secure source.
+  const draw = (seed: number, count = 20, max = 1000) => {
+    const random = seededRandom(seed);
+    return Array.from({ length: count }, () => random.nextInt(max));
+  };
+
+  it('repeats exactly for the same seed', () => {
+    expect(draw(1234)).toEqual(draw(1234));
+  });
+
+  it('differs between seeds', () => {
+    expect(draw(1234)).not.toEqual(draw(1235));
+  });
+
+  it('stays in range and spreads across it', () => {
+    const values = draw(99, 2000, 10);
+    expect(values.every((value) => Number.isInteger(value) && value >= 0 && value < 10)).toBe(true);
+    for (let face = 0; face < 10; face++) expect(values.filter((value) => value === face).length).toBeGreaterThan(120);
+  });
+
+  it('accepts any numeric seed, including 0 and negatives', () => {
+    expect(draw(0)).toHaveLength(20);
+    expect(draw(-7)).not.toEqual(draw(7));
   });
 });

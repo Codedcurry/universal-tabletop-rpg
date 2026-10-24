@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { type Cell, type GridKind, cellKey, createGrid } from '../grid';
-import { type MapData, MapError, createWorldMap, rectangleTiles } from './index';
+import {
+  DEFAULT_TERRAIN,
+  MAX_HEIGHT,
+  MAX_TILES,
+  MIN_HEIGHT,
+  type MapData,
+  MapError,
+  createWorldMap,
+  rectangleTiles,
+  validateMapData,
+} from './index';
 
 const c = (q: number, r: number): Cell => ({ q, r });
 
@@ -37,10 +47,13 @@ describe('rectangleTiles', () => {
 describe('createWorldMap', () => {
   it('looks up tiles and knows the world bounds', () => {
     const data = flatMap('square');
-    const map = createWorldMap({ ...data, tiles: [...data.tiles, { q: 9, r: 9, height: 3, blocked: true }] });
+    const map = createWorldMap({
+      ...data,
+      tiles: [...data.tiles, { q: 9, r: 9, height: 3, blocked: true, terrain: 'stone' }],
+    });
     expect(map.grid.kind).toBe('square');
-    expect(map.tile(c(1, 2))).toEqual({ height: 0, blocked: false });
-    expect(map.tile(c(9, 9))).toEqual({ height: 3, blocked: true });
+    expect(map.tile(c(1, 2))).toEqual({ height: 0, blocked: false, terrain: DEFAULT_TERRAIN });
+    expect(map.tile(c(9, 9))).toEqual({ height: 3, blocked: true, terrain: 'stone' });
     expect(map.tile(c(5, 5))).toBeUndefined();
     expect(map.inBounds(c(0, 0))).toBe(true);
     expect(map.inBounds(c(-1, 0))).toBe(false);
@@ -103,5 +116,61 @@ describe('createWorldMap', () => {
     ])('%s', (_name, data) => {
       expect(() => createWorldMap(data)).toThrow(MapError);
     });
+  });
+});
+
+describe('map limits', () => {
+  it('uses grass when a tile names no terrain', () => {
+    expect(DEFAULT_TERRAIN).toBe('grass');
+  });
+
+  it('rejects heights outside the allowed range', () => {
+    expect(() => createWorldMap({ ...flatMap('hex'), tiles: [{ q: 0, r: 0, height: MAX_HEIGHT }] })).not.toThrow();
+    expect(() => createWorldMap({ ...flatMap('hex'), tiles: [{ q: 0, r: 0, height: MAX_HEIGHT + 1 }] })).toThrow(MapError);
+    expect(() => createWorldMap({ ...flatMap('hex'), tiles: [{ q: 0, r: 0, height: MIN_HEIGHT - 1 }] })).toThrow(MapError);
+  });
+
+  it('rejects maps too big for a phone', () => {
+    expect(MAX_TILES).toBe(10_000);
+    expect(() => createWorldMap(flatMap('square', 100, 100))).not.toThrow();
+    expect(() => createWorldMap(flatMap('square', 101, 100))).toThrow(MapError);
+  });
+
+  it('rejects a badly formed terrain id', () => {
+    expect(() => createWorldMap({ ...flatMap('hex'), tiles: [{ q: 0, r: 0, height: 0, terrain: 'Lava!' }] })).toThrow(MapError);
+  });
+
+  it('puts tiles and walls in a fixed order, so equal maps produce equal data', () => {
+    const base = flatMap('square', 3, 3);
+    // Same tiles and walls, listed in a different order and direction.
+    const a = createWorldMap({ ...base, walls: [[c(0, 0), c(1, 0)], [c(2, 1), c(2, 2)]] });
+    const b = createWorldMap({ ...base, tiles: [...base.tiles].reverse(), walls: [[c(2, 2), c(2, 1)], [c(1, 0), c(0, 0)]] });
+    expect(a.toData()).toEqual(b.toData());
+  });
+});
+
+describe('validateMapData', () => {
+  // Imported map files are untrusted: anything that isn't a valid map is refused with a reason.
+  it('accepts a valid map and returns it normalized', () => {
+    const data = JSON.parse(JSON.stringify(flatMap('hex', 3, 2)));
+    const result = validateMapData(data);
+    expect(result).toEqual({ ok: true, map: createWorldMap(flatMap('hex', 3, 2)).toData() });
+  });
+
+  it.each<[string, unknown]>([
+    ['null', null],
+    ['a string', 'map'],
+    ['no tiles list', { formatVersion: 1, grid: 'hex', walls: [] }],
+    ['no walls list', { formatVersion: 1, grid: 'hex', tiles: [] }],
+    ['a tile that is not an object', { formatVersion: 1, grid: 'hex', tiles: [5], walls: [] }],
+    ['a tile with string coordinates', { formatVersion: 1, grid: 'hex', tiles: [{ q: '0', r: 0, height: 0 }], walls: [] }],
+    ['a non-boolean blocked flag', { formatVersion: 1, grid: 'hex', tiles: [{ q: 0, r: 0, height: 0, blocked: 1 }], walls: [] }],
+    ['a malformed wall', { formatVersion: 1, grid: 'hex', tiles: [], walls: [[{ q: 0, r: 0 }]] }],
+    ['an unknown grid', { formatVersion: 1, grid: 'triangle', tiles: [], walls: [] }],
+    ['a newer format version', { formatVersion: 2, grid: 'hex', tiles: [], walls: [] }],
+  ])('refuses %s, with a reason', (_name, data) => {
+    const result = validateMapData(data);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.length).toBeGreaterThan(0);
   });
 });
