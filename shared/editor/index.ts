@@ -20,3 +20,4 @@ export {
   shapeCells,
 } from './shapes';
 export { type GenerateOptions, type GeneratePreset, generateMap } from './generate';
+export { EXAMPLE_MAPS, type ExampleMapInfo, type ExampleSize, exampleMap } from './examples';

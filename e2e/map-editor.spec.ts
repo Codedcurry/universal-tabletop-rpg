@@ -291,9 +291,10 @@ test('scrolling over the map zooms it without moving the page, for DM and player
     // Make sure the page can scroll both ways, with the map in view.
     await page.getByTestId('world-canvas').scrollIntoViewIfNeeded();
     await page.evaluate(() => window.scrollBy(0, 40));
+    // (canvasCenter may scroll the map fully into view: measure the page after it.)
+    const { x, y } = await canvasCenter(page);
     const scrollBefore = await page.evaluate(() => window.scrollY);
     const shotBefore = await page.getByTestId('world-canvas').screenshot();
-    const { x, y } = await canvasCenter(page);
     await page.mouse.move(x, y);
     await page.mouse.wheel(0, 400);
     await page.mouse.wheel(0, -150);
@@ -434,6 +435,8 @@ test('the camera stays put while editing, and Re-center view brings the map back
   const ana = await join(browser, dm.link, 'Ana');
   await newMap(dm.page, 'Hex', 9, 7);
   await expect(summary(ana.page)).toContainText('63 tiles');
+  // The whole map in view first, so clicking it later doesn't scroll the page.
+  await dm.page.getByTestId('world-canvas').scrollIntoViewIfNeeded();
   const box = (await dm.page.getByTestId('world-canvas').boundingBox())!;
   const spot = { x: box.x + box.width * 0.35, y: box.y + box.height * 0.5 };
   const hover = async (page: Page, px: number, py: number) => {
@@ -543,4 +546,68 @@ test('on a touch screen, a second finger (or the Cancel button) cancels a drag',
   await touch('touchEnd', []);
   await expect(summary(page)).toContainText('63 tiles');
   await expect(page.getByRole('button', { name: 'Cancel' })).toHaveCount(0);
+});
+
+test('example maps (small, medium, large) load from the Map tab, and players get them', async ({ browser }) => {
+  const dm = await host(browser);
+  const ana = await join(browser, dm.link, 'Ana');
+  await dm.page.getByRole('button', { name: 'Examples' }).click();
+  const examples = dm.page.getByRole('group', { name: 'Example maps' });
+  await expect(examples.getByRole('listitem')).toHaveText([/Forest Glade.*small/is, /Snowy Pass.*medium/is, /Smuggler's Cove.*large/is]);
+
+  await examples.getByRole('button', { name: 'Load Forest Glade' }).click();
+  await expect(summary(dm.page)).toHaveText(/^hex map · 130 tiles · \d+ walls · heights 0–3$/);
+  await expect(summary(ana.page)).toHaveText((await summary(dm.page).textContent()) ?? '');
+  // The panel closes once a map is loaded; loading another replaces it (and can be undone).
+  await dm.page.getByRole('button', { name: 'Examples' }).click();
+  await examples.getByRole('button', { name: "Load Smuggler's Cove" }).click();
+  await expect(summary(ana.page)).toContainText('1200 tiles');
+  await dm.page.getByRole('button', { name: 'Undo' }).click();
+  await expect(summary(ana.page)).toContainText('130 tiles');
+});
+
+test('objects (trees, crates, flowers) are placed and removed with the Objects tools; players see them', async ({ browser }) => {
+  const dm = await host(browser);
+  const ana = await join(browser, dm.link, 'Ana');
+  await newMap(dm.page, 'Hex', 9, 7);
+  await dm.page.getByRole('button', { name: 'Objects', exact: true }).click();
+  await dm.page.getByLabel('Object').selectOption({ label: 'Tree' });
+  await clickCenter(dm.page);
+  await hoverCenter(dm.page);
+  await expect(tileInfo(dm.page)).toHaveText(/· Tree · solid$/);
+  await hoverCenter(ana.page);
+  await expect(tileInfo(ana.page)).toHaveText(/· Tree · solid$/);
+
+  // Flowers don't block the way.
+  await dm.page.getByLabel('Object').selectOption({ label: 'Flowers' });
+  await clickCenter(dm.page);
+  await hoverCenter(dm.page);
+  await expect(tileInfo(dm.page)).toHaveText(/· Flowers$/);
+
+  await dm.page.getByRole('button', { name: 'Remove objects' }).click();
+  await clickCenter(dm.page);
+  await hoverCenter(ana.page);
+  await expect(tileInfo(ana.page)).toHaveText(/^Tile \(-?\d+, -?\d+\) · height 0 · grass$/);
+});
+
+test('clearing the whole map asks first, and can be undone', async ({ browser }) => {
+  const dm = await host(browser);
+  const ana = await join(browser, dm.link, 'Ana');
+  await newMap(dm.page, 'Hex', 9, 7);
+  await dm.page.getByRole('button', { name: 'Raise' }).click();
+  await clickCenter(dm.page);
+  await expect(summary(ana.page)).toContainText('heights 0–1');
+
+  await dm.page.getByRole('button', { name: 'Clear map' }).click();
+  const confirm = dm.page.getByRole('alertdialog');
+  await expect(confirm).toContainText('Are you sure about clearing the whole map?');
+  await confirm.getByRole('button', { name: 'Cancel' }).click();
+  await expect(confirm).toHaveCount(0);
+  await expect(summary(ana.page)).toContainText('heights 0–1');
+
+  await dm.page.getByRole('button', { name: 'Clear map' }).click();
+  await dm.page.getByRole('alertdialog').getByRole('button', { name: 'Clear map' }).click();
+  await expect(summary(ana.page)).toHaveText('hex map · 63 tiles · 0 walls · heights 0–0');
+  await dm.page.getByRole('button', { name: 'Undo' }).click();
+  await expect(summary(ana.page)).toContainText('heights 0–1');
 });

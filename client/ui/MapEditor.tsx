@@ -1,4 +1,4 @@
-import { type ChangeEvent, type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { type ChangeEvent, type FormEvent, type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   EMPTY_HISTORY,
@@ -14,6 +14,8 @@ import {
   fillCells,
   fillEmptyCells,
   frontierCells,
+  EXAMPLE_MAPS,
+  exampleMap,
   generateMap,
   recordChange,
   redo,
@@ -21,7 +23,7 @@ import {
   undo,
 } from '@shared/editor';
 import { type Cell, type GridKind, cellKey } from '@shared/grid';
-import { MAX_TILES, type MapData, MapError, createWorldMap, validateMapData } from '@shared/map';
+import { MAP_OBJECTS, MAX_TILES, type MapData, MapError, createWorldMap, validateMapData } from '@shared/map';
 import type { HostSession } from '@shared/net';
 import type { CombatEvent } from '@shared/combat';
 import type { TilePointer } from '../render/WorldView';
@@ -30,13 +32,27 @@ import { useCombatPlay } from './useCombatPlay';
 import { TERRAINS, placeholderStyle } from '../style/stylePack';
 import { WorldCanvas, mapSummary, tileDescription } from './WorldCanvas';
 
-type Tool = 'raise' | 'lower' | 'flatten' | 'paint' | 'solid' | 'clear' | 'addTiles' | 'removeTiles' | 'wall' | 'unwall';
+type Tool =
+  | 'raise'
+  | 'lower'
+  | 'flatten'
+  | 'paint'
+  | 'object'
+  | 'removeObject'
+  | 'solid'
+  | 'clear'
+  | 'addTiles'
+  | 'removeTiles'
+  | 'wall'
+  | 'unwall';
 
 const TOOLS: { id: Tool; label: string; hint: string }[] = [
   { id: 'raise', label: 'Raise', hint: 'Raise tiles one level' },
   { id: 'lower', label: 'Lower', hint: 'Lower tiles one level' },
   { id: 'flatten', label: 'Flatten', hint: 'Set tiles to the chosen height' },
   { id: 'paint', label: 'Paint', hint: 'Paint terrain' },
+  { id: 'object', label: 'Objects', hint: 'Place trees, rocks, crates, campfires, and more' },
+  { id: 'removeObject', label: 'Remove objects', hint: 'Take objects off tiles' },
   { id: 'solid', label: 'Solid', hint: 'Make tiles impassable (pillars, boulders)' },
   { id: 'clear', label: 'Clear solid', hint: 'Make tiles passable again' },
   { id: 'addTiles', label: 'Add tiles', hint: 'Click or drag over the glowing empty spaces to grow the world' },
@@ -100,6 +116,8 @@ export function MapEditor({ session, combatEvents, editing, toolsSlot, onMapClic
   const [tool, setTool] = useState<Tool>('raise');
   const [shape, setShape] = useState<ShapeKind>('single');
   const [terrain, setTerrain] = useState<string>('stone');
+  const [objectId, setObjectId] = useState<string>('tree');
+  const [confirmingClear, setConfirmingClear] = useState(false);
   const [level, setLevel] = useState(0);
   const [history, setHistory] = useState<EditHistory>(EMPTY_HISTORY);
   const [preview, setPreview] = useState<Cell[]>([]);
@@ -107,7 +125,7 @@ export function MapEditor({ session, combatEvents, editing, toolsSlot, onMapClic
   const [drawing, setDrawing] = useState<'mouse' | 'touch' | null>(null);
   const [hovered, setHovered] = useState<Cell | null>(null);
   const [touchEdits, setTouchEdits] = useState(true);
-  const [panel, setPanel] = useState<'none' | 'new' | 'generate'>('none');
+  const [panel, setPanel] = useState<'none' | 'new' | 'generate' | 'examples'>('none');
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   /** Bumped to re-frame the camera after a new map. */
@@ -155,6 +173,10 @@ export function MapEditor({ session, combatEvents, editing, toolsSlot, onMapClic
         return { type: 'setHeight', cells, height: level };
       case 'paint':
         return { type: 'setTerrain', cells, terrain };
+      case 'object':
+        return { type: 'setObject', cells, object: objectId };
+      case 'removeObject':
+        return { type: 'setObject', cells, object: null };
       case 'solid':
         return { type: 'setBlocked', cells, blocked: true };
       case 'clear':
@@ -447,6 +469,22 @@ export function MapEditor({ session, combatEvents, editing, toolsSlot, onMapClic
             </select>
           </label>
         )}
+        {tool === 'object' && (
+          <label>
+            <span>Object</span>
+            <select value={objectId} onChange={(event) => setObjectId(event.target.value)}>
+              {(['nature', 'built'] as const).map((category) => (
+                <optgroup key={category} label={category === 'nature' ? 'Nature' : 'Built'}>
+                  {MAP_OBJECTS.filter((entry) => entry.category === category).map((entry) => (
+                    <option key={entry.id} value={entry.id}>
+                      {entry.name}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </label>
+        )}
         {usesLevel && (
           <label>
             <span>Level</span>
@@ -487,6 +525,13 @@ export function MapEditor({ session, combatEvents, editing, toolsSlot, onMapClic
         >
           Generate
         </button>
+        <button
+          type="button"
+          aria-expanded={panel === 'examples'}
+          onClick={() => setPanel(panel === 'examples' ? 'none' : 'examples')}
+        >
+          Examples
+        </button>
         {map && (
           <button type="button" onClick={switchGrid} title="Converts this map, keeping its layout, heights, and terrain">
             Switch to {map.grid === 'hex' ? 'square' : 'hex'} grid
@@ -494,6 +539,9 @@ export function MapEditor({ session, combatEvents, editing, toolsSlot, onMapClic
         )}
         <button type="button" onClick={exportMap} disabled={!map}>
           Export
+        </button>
+        <button type="button" className="danger" disabled={!map} onClick={() => setConfirmingClear(true)}>
+          Clear map
         </button>
         <label className="file-button">
           <span>Import map file</span>
@@ -503,6 +551,16 @@ export function MapEditor({ session, combatEvents, editing, toolsSlot, onMapClic
 
       {panel === 'new' && <NewMapPanel onCreate={replaceMap} />}
       {panel === 'generate' && <GeneratePanel onCreate={replaceMap} />}
+      {panel === 'examples' && <ExamplesPanel onLoad={replaceMap} />}
+      {confirmingClear && map && (
+        <ConfirmClear
+          onCancel={() => setConfirmingClear(false)}
+          onConfirm={() => {
+            setConfirmingClear(false);
+            replaceMap(applyEdit(map, { type: 'clearMap' }));
+          }}
+        />
+      )}
 
       {error && (
         <p className="error" role="alert">
@@ -647,6 +705,65 @@ function NewMapPanel({ onCreate }: { onCreate(map: MapData): void }) {
         {problem && <p className="field-error">{problem}</p>}
       </fieldset>
     </form>
+  );
+}
+
+/** Asks before wiping the map (Undo can still bring it back). */
+function ConfirmClear({ onConfirm, onCancel }: { onConfirm(): void; onCancel(): void }) {
+  const titleId = useId();
+  const cancel = useRef<HTMLButtonElement>(null);
+  useEffect(() => cancel.current?.focus(), []);
+  return (
+    <div
+      className="panel confirm"
+      role="alertdialog"
+      aria-labelledby={titleId}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') onCancel();
+      }}
+    >
+      <p id={titleId}>
+        <strong>Are you sure about clearing the whole map?</strong>
+      </p>
+      <p className="muted">Every height, terrain, object, and wall goes; the map becomes flat grass of the same size.</p>
+      <div className="row">
+        <button type="button" className="danger" onClick={onConfirm}>
+          Clear map
+        </button>
+        <button type="button" ref={cancel} onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Ready-made maps that show what a map can hold; loading one replaces the current map (Undo brings it back). */
+function ExamplesPanel({ onLoad }: { onLoad(map: MapData): void }) {
+  return (
+    <fieldset className="panel examples">
+      <legend>Example maps</legend>
+      <ul>
+        {EXAMPLE_MAPS.map((example) => {
+          const map = exampleMap(example.id);
+          return (
+            <li key={example.id}>
+              <div>
+                <strong>{example.name}</strong>
+                <span className="muted">
+                  {' '}
+                  · {example.size} · {map.grid} · {map.tiles.length} tiles
+                </span>
+                <p>{example.description}</p>
+              </div>
+              <button type="button" aria-label={`Load ${example.name}`} onClick={() => onLoad(map)}>
+                Load
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </fieldset>
   );
 }
 

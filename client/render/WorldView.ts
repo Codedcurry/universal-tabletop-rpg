@@ -21,6 +21,7 @@ import { type AnimationSpeed, timingFor } from '@shared/anim';
 import { type GraphicsQuality, SlowFrameDetector, effectsFor } from '@shared/graphics';
 import { CameraRig } from './CameraRig';
 import { SceneEffects } from './SceneEffects';
+import { buildObjectMeshes, cellSeed } from './objectMeshes';
 import { TokenLayer } from './TokenLayer';
 
 // Draws a map in 3D and reports what the pointer is over. No game logic:
@@ -350,16 +351,19 @@ export class WorldView {
     );
     const { levelHeight } = this.style;
 
-    // One mesh per terrain, one thin instance per tile.
-    const byTerrain = new Map<string, Cell[]>();
+    const solidLook = (terrain: string) => this.style.solid[terrain] ?? this.style.unknownSolid;
+    // One mesh per tile color, one thin instance per tile. Solid tiles whose look has no
+    // block (deep water) are the tile itself in the solid color.
+    const byColor = new Map<string, Cell[]>();
     for (const tile of map.tiles) {
       const terrain = tile.terrain ?? DEFAULT_TERRAIN;
-      byTerrain.set(terrain, [...(byTerrain.get(terrain) ?? []), tile]);
+      const solid = tile.blocked ? solidLook(terrain) : null;
+      const color = solid && solid.height === 0 ? solid.color : (this.style.terrain[terrain] ?? this.style.unknownTerrain).color;
+      byColor.set(color, [...(byColor.get(color) ?? []), tile]);
     }
-    for (const [terrain, cells] of byTerrain) {
-      const look = this.style.terrain[terrain] ?? this.style.unknownTerrain;
-      const mesh = this.tileMesh(`terrain-${terrain}`, grid, this.style.tileFill);
-      mesh.material = this.material(look.color);
+    for (const [color, cells] of byColor) {
+      const mesh = this.tileMesh(`terrain-${color}`, grid, this.style.tileFill);
+      mesh.material = this.material(color);
       mesh.thinInstanceSetBuffer(
         'matrix',
         this.matrices(cells, (cell) => ({ base: 0, top: this.tileTop(cell) })),
@@ -371,21 +375,53 @@ export class WorldView {
       this.meshes.push(mesh);
     }
 
-    // Solid tiles get a dark block on top.
-    const blocked = map.tiles.filter((tile) => tile.blocked);
-    if (blocked.length > 0) {
-      const mesh = this.tileMesh('blocked', grid, this.style.tileFill * 0.55);
-      mesh.material = this.material(this.style.blockedColor);
+    // Other solid tiles get a block on top in their terrain's solid look: a canopy, a boulder, a crag.
+    const blocks = new Map<string, Cell[]>();
+    for (const tile of map.tiles) {
+      const terrain = tile.terrain ?? DEFAULT_TERRAIN;
+      // (A tile with an object shows the object instead.)
+      if (tile.blocked && !tile.object && solidLook(terrain).height > 0) blocks.set(terrain, [...(blocks.get(terrain) ?? []), tile]);
+    }
+    for (const [terrain, cells] of blocks) {
+      const look = solidLook(terrain);
+      const mesh = this.tileMesh(`solid-${terrain}`, grid, this.style.tileFill * look.fill);
+      mesh.material = this.material(look.color);
       mesh.isPickable = false;
       mesh.thinInstanceSetBuffer(
         'matrix',
-        this.matrices(blocked, (cell) => ({ base: this.tileTop(cell), top: this.tileTop(cell) + levelHeight * 1.5 })),
+        this.matrices(cells, (cell) => ({ base: this.tileTop(cell), top: this.tileTop(cell) + levelHeight * look.height })),
         16,
       );
       mesh.thinInstanceRefreshBoundingInfo(false);
       this.effects.addShadowCaster(mesh);
       this.meshes.push(mesh);
     }
+
+    // Objects on tiles: trees, rocks, barrels, campfires.
+    const placements = map.tiles
+      .filter((tile) => tile.object)
+      .map((tile) => {
+        const { x, z } = grid.toWorld(tile, this.style.cellSize);
+        return { object: tile.object as string, x, y: this.tileTop(tile), z, seed: cellSeed(tile.q, tile.r) };
+      });
+    const objects = buildObjectMeshes(
+      this.scene,
+      placements,
+      this.style.objects,
+      this.style.unknownObject,
+      this.style.cellSize,
+      (color, glow) => {
+        if (!glow) return this.material(color);
+        const material = this.material(color, `${color}-glow`);
+        material.emissiveColor = Color3.FromHexString(color).scale(0.8);
+        return material;
+      },
+    );
+    for (const mesh of objects.meshes) {
+      this.effects.addShadowCaster(mesh, false);
+      this.meshes.push(mesh);
+    }
+    for (const mesh of objects.glowing) this.effects.addGlow(mesh);
 
     if (map.walls.length > 0) {
       const walls = this.wallMesh(grid, map);

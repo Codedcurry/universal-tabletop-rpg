@@ -8,6 +8,7 @@ import {
   type TileData,
   type WallData,
   createWorldMap,
+  objectInfo,
   rectangleTiles,
 } from '../map';
 
@@ -42,7 +43,11 @@ export type MapEdit =
   | { readonly type: 'setBlocked'; readonly cells: readonly Cell[]; readonly blocked: boolean }
   | { readonly type: 'addTiles'; readonly cells: readonly Cell[]; readonly height: number; readonly terrain: string }
   | { readonly type: 'removeTiles'; readonly cells: readonly Cell[] }
-  | { readonly type: 'setWall'; readonly a: Cell; readonly b: Cell; readonly present: boolean };
+  | { readonly type: 'setWall'; readonly a: Cell; readonly b: Cell; readonly present: boolean }
+  /** Places an object (null removes it); the tile becomes solid if the object blocks, open if not. */
+  | { readonly type: 'setObject'; readonly cells: readonly Cell[]; readonly object: string | null }
+  /** Flat, empty grass everywhere: no heights, terrain, objects, solid tiles, or walls. The world keeps its shape. */
+  | { readonly type: 'clearMap' };
 
 /** A tile with every optional field spelled out, for comparing. */
 function normalizeTile(tile: TileData): Required<TileData> {
@@ -52,19 +57,20 @@ function normalizeTile(tile: TileData): Required<TileData> {
     height: tile.height,
     blocked: tile.blocked === true,
     terrain: tile.terrain ?? DEFAULT_TERRAIN,
+    object: tile.object ?? '', // '': none
   };
 }
 
 /** Tile data in the same shape createWorldMap's toData produces. */
 function canonicalTile(tile: Required<TileData>): TileData {
-  const { blocked, ...rest } = tile;
-  return blocked ? { ...rest, blocked } : rest;
+  const { blocked, object, ...rest } = tile;
+  return { ...rest, ...(blocked ? { blocked } : {}), ...(object ? { object } : {}) };
 }
 
 function sameTile(a: TileData, b: TileData): boolean {
   const x = normalizeTile(a);
   const y = normalizeTile(b);
-  return x.height === y.height && x.blocked === y.blocked && x.terrain === y.terrain;
+  return x.height === y.height && x.blocked === y.blocked && x.terrain === y.terrain && x.object === y.object;
 }
 
 function wallKey([a, b]: WallData): string {
@@ -166,6 +172,17 @@ export function editPatch(map: MapData, edit: MapEdit): MapPatch {
           .filter((cell) => existing.has(cellKey(cell)))
           .map(({ q, r }) => ({ q, r })),
       };
+    case 'setObject': {
+      const blocks = edit.object !== null && objectInfo(edit.object)?.blocks === true;
+      return modify(edit.cells, (tile) =>
+        // Removing objects passes over tiles that have none (a solid tile stays solid).
+        edit.object === null && !tile.object ? tile : { ...tile, object: edit.object ?? '', blocked: blocks },
+      );
+    }
+    case 'clearMap': {
+      const flat = modify([...existing.values()], (tile) => ({ ...tile, height: 0, terrain: DEFAULT_TERRAIN, blocked: false, object: '' }));
+      return { ...flat, removeWalls: [...map.walls] };
+    }
     case 'setWall': {
       const wall: WallData = [edit.a, edit.b];
       const present = map.walls.some((existingWall) => wallKey(existingWall) === wallKey(wall));

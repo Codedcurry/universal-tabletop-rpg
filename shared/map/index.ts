@@ -27,6 +27,8 @@ export interface TileData {
   readonly blocked?: boolean;
   /** Terrain id such as "grass" or "water"; defaults to grass. Cosmetic for now. */
   readonly terrain?: string;
+  /** Something standing on the tile, such as "tree" or "barrel" (see objects.ts). */
+  readonly object?: string;
 }
 
 export type WallData = readonly [Cell, Cell];
@@ -43,6 +45,7 @@ export interface Tile {
   readonly height: number;
   readonly blocked: boolean;
   readonly terrain: string;
+  readonly object: string | null;
 }
 
 export interface WorldMap {
@@ -124,9 +127,11 @@ export function createWorldMap(data: MapData): WorldMap {
     }
     const terrain = tile.terrain ?? DEFAULT_TERRAIN;
     if (!TERRAIN_PATTERN.test(terrain)) throw new MapError(`Tile ${where} has an invalid terrain "${terrain}"`);
+    const object = tile.object ?? null;
+    if (object !== null && !TERRAIN_PATTERN.test(object)) throw new MapError(`Tile ${where} has an invalid object "${object}"`);
     const key = cellKey(tile);
     if (tiles.has(key)) throw new MapError(`Tile ${where} is listed twice`);
-    tiles.set(key, { cell: cell(tile.q, tile.r), height: tile.height, blocked: tile.blocked === true, terrain });
+    tiles.set(key, { cell: cell(tile.q, tile.r), height: tile.height, blocked: tile.blocked === true, terrain, object });
   }
 
   const walls = new Map<string, [Cell, Cell]>();
@@ -141,7 +146,7 @@ export function createWorldMap(data: MapData): WorldMap {
     grid,
     tile: (c) => {
       const tile = tiles.get(cellKey(c));
-      return tile && { height: tile.height, blocked: tile.blocked, terrain: tile.terrain };
+      return tile && { height: tile.height, blocked: tile.blocked, terrain: tile.terrain, object: tile.object };
     },
     inBounds: (c) => tiles.has(cellKey(c)),
     hasWall: (a, b) => walls.has(wallKey(a, b)),
@@ -157,6 +162,7 @@ export function createWorldMap(data: MapData): WorldMap {
           height: tile.height,
           terrain: tile.terrain,
           ...(tile.blocked ? { blocked: true } : {}),
+          ...(tile.object ? { object: tile.object } : {}),
         })),
       walls: [...walls.values()].sort(([a1, a2], [b1, b2]) => compareCells(a1, b1) || compareCells(a2, b2)),
     }),
@@ -188,6 +194,9 @@ export function validateMapData(data: unknown): MapValidation {
     if (tile.terrain !== undefined && typeof tile.terrain !== 'string') {
       return { ok: false, error: `Tile ${index + 1} has a malformed terrain` };
     }
+    if (tile.object !== undefined && typeof tile.object !== 'string') {
+      return { ok: false, error: `Tile ${index + 1} has a malformed object` };
+    }
   }
   for (const [index, wall] of walls.entries()) {
     if (!Array.isArray(wall) || wall.length !== 2 || !isCell(wall[0]) || !isCell(wall[1])) {
@@ -208,3 +217,4 @@ export function validateMapData(data: unknown): MapValidation {
   }
 }
 export { type Vec3, rayPick } from './raypick';
+export { MAP_OBJECTS, type MapObjectInfo, objectInfo } from './objects';

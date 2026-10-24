@@ -1191,3 +1191,36 @@ button.danger {
   border: 1px solid var(--accent);
   font-size: 13px;
 }
+
+/* Example maps in the Map tab. */
+.examples ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.examples li {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.examples li p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* "Are you sure about clearing the whole map?" */
+.confirm {
+  border: 1px solid var(--danger);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.confirm p {
+  margin: 0 0 6px;
+}

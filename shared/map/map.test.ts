@@ -6,8 +6,10 @@ import {
   MAX_TILES,
   MIN_HEIGHT,
   type MapData,
+  MAP_OBJECTS,
   MapError,
   createWorldMap,
+  objectInfo,
   rectangleTiles,
   validateMapData,
 } from './index';
@@ -52,8 +54,8 @@ describe('createWorldMap', () => {
       tiles: [...data.tiles, { q: 9, r: 9, height: 3, blocked: true, terrain: 'stone' }],
     });
     expect(map.grid.kind).toBe('square');
-    expect(map.tile(c(1, 2))).toEqual({ height: 0, blocked: false, terrain: DEFAULT_TERRAIN });
-    expect(map.tile(c(9, 9))).toEqual({ height: 3, blocked: true, terrain: 'stone' });
+    expect(map.tile(c(1, 2))).toEqual({ height: 0, blocked: false, terrain: DEFAULT_TERRAIN, object: null });
+    expect(map.tile(c(9, 9))).toEqual({ height: 3, blocked: true, terrain: 'stone', object: null });
     expect(map.tile(c(5, 5))).toBeUndefined();
     expect(map.inBounds(c(0, 0))).toBe(true);
     expect(map.inBounds(c(-1, 0))).toBe(false);
@@ -172,5 +174,37 @@ describe('validateMapData', () => {
     const result = validateMapData(data);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.length).toBeGreaterThan(0);
+  });
+});
+
+describe('objects on tiles', () => {
+  it('keeps an object on a tile, and leaves it out when there is none', () => {
+    const map = flatMap('hex', 2, 1);
+    const withTree = { ...map, tiles: [{ ...map.tiles[0]!, object: 'tree', blocked: true }, map.tiles[1]!] };
+    const world = createWorldMap(withTree);
+    expect(world.tile(map.tiles[0]!)?.object).toBe('tree');
+    expect(world.tile(map.tiles[1]!)?.object).toBeNull();
+    const data = world.toData();
+    expect(data.tiles[0]).toMatchObject({ object: 'tree', blocked: true });
+    expect(data.tiles[1]).not.toHaveProperty('object');
+  });
+
+  it('refuses malformed object ids in files', () => {
+    const map = flatMap('square', 1, 1);
+    const bad = { ...map, tiles: [{ ...map.tiles[0]!, object: 'Big Tree!' }] };
+    expect(validateMapData(bad)).toMatchObject({ ok: false });
+    const wrongType = { ...map, tiles: [{ ...map.tiles[0]!, object: 7 }] };
+    expect(validateMapData(wrongType)).toMatchObject({ ok: false });
+  });
+
+  it('has a catalog of objects: nature and built, each blocking or not by default', () => {
+    const ids = MAP_OBJECTS.map((entry) => entry.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const id of ['tree', 'pine', 'bush', 'rock', 'boulder', 'crate', 'barrel', 'campfire']) expect(ids).toContain(id);
+    expect(objectInfo('tree')?.blocks).toBe(true);
+    expect(objectInfo('flowers')?.blocks).toBe(false);
+    expect(new Set(MAP_OBJECTS.map((entry) => entry.category))).toEqual(new Set(['nature', 'built']));
+    for (const entry of MAP_OBJECTS) expect(() => createWorldMap({ ...flatMap('square', 1, 1), tiles: [{ q: 0, r: 0, height: 0, object: entry.id }] })).not.toThrow();
+    expect(objectInfo('spaceship')).toBeUndefined();
   });
 });

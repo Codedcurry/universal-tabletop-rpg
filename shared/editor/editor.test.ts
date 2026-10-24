@@ -65,14 +65,14 @@ describe('edits', () => {
   it('paints terrain and blocks tiles', () => {
     let map = applyEdit(base, { type: 'setTerrain', cells: [c(2, 2)], terrain: 'water' });
     map = applyEdit(map, { type: 'setBlocked', cells: [c(2, 2)], blocked: true });
-    expect(createWorldMap(map).tile(c(2, 2))).toEqual({ height: 0, terrain: 'water', blocked: true });
+    expect(createWorldMap(map).tile(c(2, 2))).toEqual({ height: 0, terrain: 'water', blocked: true, object: null });
   });
 
   it('adds tiles only where there are none, and removes tiles', () => {
     const raised = applyEdit(base, { type: 'raise', cells: [c(0, 0)], amount: 1 });
     const grown = applyEdit(raised, { type: 'addTiles', cells: [c(0, 0), c(4, 0)], height: 2, terrain: 'sand' });
     expect(heightAt(grown, c(0, 0))).toBe(1);
-    expect(createWorldMap(grown).tile(c(4, 0))).toEqual({ height: 2, terrain: 'sand', blocked: false });
+    expect(createWorldMap(grown).tile(c(4, 0))).toEqual({ height: 2, terrain: 'sand', blocked: false, object: null });
     const shrunk = applyEdit(grown, { type: 'removeTiles', cells: [c(4, 0), c(3, 3)] });
     expect(shrunk.tiles).toHaveLength(15);
     expect(createWorldMap(shrunk).inBounds(c(3, 3))).toBe(false);
@@ -188,5 +188,52 @@ describe('undo and redo', () => {
     let undos = 0;
     for (let step = undo(history, map); step; step = undo(step.history, step.map)) undos++;
     expect(undos).toBe(MAX_HISTORY);
+  });
+});
+
+describe('objects', () => {
+  const tile = (map: MapData, cell: Cell) => map.tiles.find((entry) => cellKey(entry) === cellKey(cell));
+
+  it('places an object, making the tile solid if the object blocks', () => {
+    const map = applyEdit(base, { type: 'setObject', cells: [c(0, 0)], object: 'tree' });
+    expect(tile(map, c(0, 0))).toMatchObject({ object: 'tree', blocked: true });
+    const flowers = applyEdit(base, { type: 'setObject', cells: [c(1, 0)], object: 'flowers' });
+    expect(tile(flowers, c(1, 0))?.object).toBe('flowers');
+    expect(tile(flowers, c(1, 0))?.blocked).toBeFalsy();
+  });
+
+  it('removes an object, opening the tile again', () => {
+    const tree = applyEdit(base, { type: 'setObject', cells: [c(0, 0)], object: 'tree' });
+    const cleared = applyEdit(tree, { type: 'setObject', cells: [c(0, 0)], object: null });
+    expect(tile(cleared, c(0, 0))).not.toHaveProperty('object');
+    expect(tile(cleared, c(0, 0))?.blocked).toBeFalsy();
+  });
+
+  it('leaves solid tiles without an object alone when removing objects', () => {
+    const solid = applyEdit(base, { type: 'setBlocked', cells: [c(1, 1)], blocked: true });
+    expect(applyEdit(solid, { type: 'setObject', cells: [c(1, 1)], object: null })).toEqual(solid);
+  });
+
+  it('sends objects in patches, so players see them', () => {
+    const tree = applyEdit(base, { type: 'setObject', cells: [c(2, 2)], object: 'pine' });
+    expect(applyPatch(base, diffMaps(base, tree))).toEqual(tree);
+  });
+});
+
+describe('clearing the whole map', () => {
+  it('leaves flat, empty grass of the same size and grid', () => {
+    let map = applyEdit(base, { type: 'raise', cells: [c(0, 0), c(1, 1)], amount: 3 });
+    map = applyEdit(map, { type: 'setTerrain', cells: [c(2, 2)], terrain: 'water' });
+    map = applyEdit(map, { type: 'setObject', cells: [c(3, 3)], object: 'boulder' });
+    map = applyEdit(map, { type: 'setWall', a: c(0, 0), b: c(1, 0), present: true });
+    const cleared = applyEdit(map, { type: 'clearMap' });
+    expect(cleared).toEqual(blankMap('square', 4, 4));
+  });
+
+  it('keeps the shape of a world that isn\'t a rectangle', () => {
+    const grown = applyEdit(base, { type: 'addTiles', cells: [c(4, 0)], height: 2, terrain: 'stone' });
+    const cleared = applyEdit(grown, { type: 'clearMap' });
+    expect(cleared.tiles).toHaveLength(17);
+    expect(cleared.tiles.every((entry) => entry.height === 0 && entry.terrain === 'grass' && !entry.blocked && !entry.object)).toBe(true);
   });
 });

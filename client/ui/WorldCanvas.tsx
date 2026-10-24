@@ -4,7 +4,7 @@ import type { CombatEvent, CombatState } from '@shared/combat';
 import { lowerQuality } from '@shared/graphics';
 import type { GameSystem } from '@shared/system';
 import type { Cell } from '@shared/grid';
-import type { MapData, WorldMap } from '@shared/map';
+import { type MapData, type WorldMap, objectInfo } from '@shared/map';
 import { type HighlightKind, type TilePointer, WorldView } from '../render/WorldView';
 import { placeholderStyle } from '../style/stylePack';
 import { DisplaySettingsMenu } from './DisplaySettingsMenu';
@@ -244,5 +244,6 @@ export function tileDescription(world: WorldMap, cell: Cell | null): string {
   if (!cell) return 'Point at a tile to inspect it';
   const tile = world.tile(cell);
   if (!tile) return `(${cell.q}, ${cell.r}) is outside the map`;
-  return `Tile (${cell.q}, ${cell.r}) · height ${tile.height} · ${tile.terrain}${tile.blocked ? ' · solid' : ''}`;
+  const object = tile.object ? ` · ${objectInfo(tile.object)?.name ?? tile.object}` : '';
+  return `Tile (${cell.q}, ${cell.r}) · height ${tile.height} · ${tile.terrain}${object}${tile.blocked ? ' · solid' : ''}`;
 }
