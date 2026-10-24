@@ -1,0 +1,335 @@
+:root {
+  --bg: #14121c;
+  --surface: #1f1b2b;
+  --surface-2: #2a2539;
+  --border: #3a3450;
+  --text: #ece8f4;
+  --muted: #9a93ad;
+  --accent: #e0b44c;
+  --online: #6fd08c;
+  --danger: #ff7a7a;
+  --gutter: 16px;
+  --tap: 44px; /* minimum touch target */
+  color-scheme: dark;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  -webkit-tap-highlight-color: transparent;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0 0 8px;
+}
+h1 {
+  font-size: 1.5rem;
+}
+h2 {
+  font-size: 1.05rem;
+}
+h3 {
+  font-size: 0.95rem;
+  margin-top: 16px;
+}
+p {
+  margin: 0 0 8px;
+}
+
+.page {
+  display: grid;
+  gap: 12px;
+  padding: max(12px, env(safe-area-inset-top)) max(var(--gutter), env(safe-area-inset-right))
+    max(16px, env(safe-area-inset-bottom)) max(var(--gutter), env(safe-area-inset-left));
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.home {
+  max-width: 520px;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  min-width: 0;
+}
+
+.columns {
+  display: grid;
+  gap: 12px;
+}
+
+@media (min-width: 900px) {
+  .columns {
+    grid-template-columns: minmax(220px, 1fr) minmax(280px, 1.3fr) minmax(300px, 1.5fr);
+    align-items: start;
+  }
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.grow {
+  flex: 1 1 100px;
+  min-width: 0;
+}
+
+label {
+  display: grid;
+  gap: 4px;
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+label.check {
+  display: flex;
+  align-items: center;
+  min-height: var(--tap);
+  margin: 0;
+}
+
+input,
+select,
+button {
+  min-height: var(--tap);
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  font: inherit;
+  font-size: 16px; /* 16px+ stops iOS zooming on focus */
+  color: var(--text);
+}
+
+input,
+select {
+  width: 100%;
+  min-width: 0;
+  padding: 0 12px;
+  background: var(--surface-2);
+}
+
+label.check input {
+  width: 22px;
+  min-height: 22px;
+}
+
+button {
+  padding: 0 16px;
+  background: var(--surface-2);
+  cursor: pointer;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #1a1400;
+  font-weight: 600;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.error {
+  color: var(--danger);
+}
+
+/* Room header */
+.room {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+}
+.room-code {
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  color: var(--accent);
+  margin: 0;
+}
+.join-link {
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+}
+
+/* Player status banner */
+.status.reconnecting,
+.status.connecting {
+  border-color: var(--accent);
+}
+.status.rejected {
+  border-color: var(--danger);
+}
+
+/* Players */
+.players {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 6px;
+}
+.dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  margin-right: 8px;
+}
+.dot.online {
+  background: var(--online);
+}
+
+/* Combat */
+.turn-banner {
+  font-weight: 600;
+  color: var(--accent);
+}
+.combatants {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 8px;
+  display: grid;
+  gap: 4px;
+}
+.combatants li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+.combatants li.active {
+  outline: 2px solid var(--accent);
+}
+.combatants .name {
+  font-weight: 600;
+  flex: 1 1 auto;
+}
+.combatants .side,
+.combatants .conditions {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Log */
+.log {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 12px;
+  max-height: 50vh;
+  overflow-y: auto;
+  display: grid;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+.log li[data-kind='system'] {
+  color: var(--muted);
+}
+.whisper {
+  color: var(--accent);
+}
+.roll-total {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Chat and dice are deliberately different: neutral chat, gold-framed dice. */
+.chat-box,
+.dice-box {
+  border-radius: 10px;
+  padding: 10px 12px 4px;
+  margin-top: 12px;
+}
+.chat-box {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+.dice-box {
+  background: #2b2416;
+  border: 1px solid var(--accent);
+}
+.dice-box h3 {
+  color: var(--accent);
+}
+.chat-box h3,
+.dice-box h3 {
+  margin-top: 0;
+}
+.hint {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.hint b {
+  color: var(--text);
+  font-family: ui-monospace, monospace;
+  font-weight: 600;
+}
+.instructions {
+  background: rgba(224, 180, 76, 0.12);
+  border-left: 3px solid var(--accent);
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+.faces {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.face {
+  margin: 0;
+}
+.face input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+.field-error {
+  color: var(--danger);
+  font-size: 0.8rem;
+}
