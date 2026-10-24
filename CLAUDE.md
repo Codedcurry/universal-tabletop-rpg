@@ -63,9 +63,17 @@ A PC- and mobile-friendly take on Tabletop Simulator, built specifically for tab
 - Edit-mode controls: left = tool, right-drag = pan, middle-drag = turn, wheel = zoom. Touch screens get a "Touch: editing / moving view" toggle.
 - Messages over PeerJS's 16 KB limit are split into frames (`shared/net/framing.ts`) and reassembled with size caps (200 KB from players, 20 MB from the DM).
 
+### Camera (`shared/camera/` + `client/render/CameraRig.ts`)
+- Compass convention: a heading is where the camera LOOKS. 0 = north = toward row 0 (world -z), PI/2 = east (+x). The Babylon scene is right-handed (`useRightHandedSystem`), so facing north, east is on the right; the default left-handed space mirrored maps.
+- Pure rules in `shared/camera`: N/E/S/W snapping and quarter turns (E = clockwise), frame-rate-independent gliding (`approach`, `approachAngle`), heading/orbit conversion (alpha = heading + PI/2), world-bounds clamping, the mode reducer (2.5D or top-down; turning free camera off snaps to the nearest direction in 2.5D, north-up in top-down), twist angle, and `spriteFacing` (which of 4 sprite directions to draw).
+- `CameraRig` drives Babylon from those rules. Snapping view: drag pans (left for players, right for the DM), wheel/pinch zooms, and turning is Q/E, the turn buttons, middle-drag (a quarter turn per ~140 px), or a two-finger twist (~35 degrees per quarter turn). Free camera adds orbiting (left drag for players, middle drag in the editor). The camera orbits a point on the ground surface (top of a level-0 tile), so turning keeps the same tile centered, and that point is clamped to the map.
+- Camera framing runs on the next drawn frame and builds its projection from the camera angles itself (Babylon returned stale matrices right after moving the camera).
+- "Focus everyone here" (DM) sends a one-off `focus` message with a cell; players' cameras glide there. It is not session state.
+- Map editor drags can be cancelled mid-stroke: right-click while holding the left button, Esc, a second finger on touch screens, or the on-screen Cancel button. Cancelling reverts everything the stroke changed and leaves no undo step.
+
 ### Known gaps (planned, not built yet)
 - The DM's session lives in memory: reloading the DM's page ends the game (storage is step 12). Use Export to keep a map.
-- Creatures aren't drawn on the map yet (tokens are step 7); the camera is a basic orbit camera until step 6.
+- Creatures aren't drawn on the map yet (tokens and sprites are step 7; `spriteFacing` is ready for them).
 - No TURN relay configured yet; players on strict networks (some mobile carriers) may fail to connect. See `.env.example`.
 - DM overrides and house rules (build step 15) — the engine currently only enforces.
 - Line of sight for targeting (step 10); range is grid distance only.

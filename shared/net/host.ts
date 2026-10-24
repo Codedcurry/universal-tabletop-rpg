@@ -221,6 +221,13 @@ export class HostSession {
     this.publish({ kind: 'mapPatch', patch });
   }
 
+  /** Points every connected player's camera at a cell ("focus everyone here"). */
+  focusPlayers(cell: Cell): void {
+    for (const connection of this.connections.values()) {
+      if (connection.playerId) this.options.send(connection.id, { type: 'focus', cell: { q: cell.q, r: cell.r } });
+    }
+  }
+
   /** A combat setup for a player's synced character. */
   playerSetup(playerId: string, position: Cell, side = 'party'): CombatantSetup {
     const player = this.player(playerId);

@@ -405,3 +405,95 @@ button[aria-expanded='true'] {
 .recenter {
   margin-top: 6px;
 }
+
+/* Camera controls float over the map. */
+.world {
+  position: relative;
+}
+.camera-controls {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  pointer-events: none; /* only the buttons themselves catch clicks */
+}
+.camera-controls > * {
+  pointer-events: auto;
+}
+.camera-controls button {
+  min-height: 40px;
+  padding: 0 10px;
+  background: rgba(31, 27, 43, 0.85);
+  font-size: 14px;
+}
+.camera-controls button[aria-label='Turn left'],
+.camera-controls button[aria-label='Turn right'] {
+  min-width: 40px;
+  font-size: 20px;
+}
+.camera-controls button[aria-pressed='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #1a1400;
+}
+.compass {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  pointer-events: none;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(20, 18, 28, 0.85);
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* Shown while a drag is in progress: how to cancel it. */
+.stroke-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-radius: 10px;
+  background: rgba(20, 18, 28, 0.9);
+  border: 1px solid var(--accent);
+  color: var(--text);
+  font-size: 14px;
+  white-space: nowrap;
+}
+.stroke-hint button {
+  min-height: 40px;
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #1a0505;
+  font-weight: 600;
+}
+
+/* Short camera labels on phones, so the buttons fit in one row. */
+.camera-controls .short {
+  display: none;
+}
+@media (max-width: 520px) {
+  .camera-controls .long {
+    display: none;
+  }
+  .camera-controls .short {
+    display: inline;
+  }
+  .camera-controls button {
+    padding: 0 8px;
+  }
+}
+/* Keep the cancel hint clear of the compass. */
+.stroke-hint {
+  bottom: 48px;
+}

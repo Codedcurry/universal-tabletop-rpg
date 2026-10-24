@@ -1,4 +1,5 @@
 import type { CombatEvent } from '../combat';
+import type { Cell } from '../grid';
 import type { RandomSource } from '../random';
 import { scriptedRandom } from '../random';
 import type { CreatureSheet } from '../system';
@@ -44,6 +45,8 @@ export interface TestPlayer {
   /** Combat events this player's session reported, one array per update. */
   readonly combatEvents: (readonly CombatEvent[])[];
   readonly failures: string[];
+  /** Cells the DM asked this player's camera to look at. */
+  readonly focuses: Cell[];
   /** Simulates the connection dropping (both sides notice). */
   disconnect(): void;
   /** Opens a fresh connection with the same identity. */
@@ -142,6 +145,7 @@ export function createTestNetwork(options: { dmTitle?: string } = {}) {
     const token = joinOptions.token ?? `test_token_${String(nextToken++).padStart(8, '0')}`;
     const combatEvents: (readonly CombatEvent[])[] = [];
     const failures: string[] = [];
+    const focuses: Cell[] = [];
     let connectionId = '';
 
     const session = new ClientSession({
@@ -155,6 +159,7 @@ export function createTestNetwork(options: { dmTitle?: string } = {}) {
       now: () => clock,
       onCombatEvents: (events) => combatEvents.push(events),
       onRequestFailed: (reason) => failures.push(reason),
+      onFocus: (cell) => focuses.push(cell),
     });
 
     function connect(): void {
@@ -175,6 +180,7 @@ export function createTestNetwork(options: { dmTitle?: string } = {}) {
       },
       combatEvents,
       failures,
+      focuses,
       disconnect() {
         open.delete(connectionId);
         host.disconnected(connectionId);

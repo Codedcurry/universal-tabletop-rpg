@@ -1,4 +1,5 @@
 import type { CombatAction, CombatEvent } from '../combat';
+import type { Cell } from '../grid';
 import { type DiceExpression, parseDice, rollDice } from '../dice';
 import { type RandomSource, recordDraws } from '../random';
 import type { CreatureSheet } from '../system';
@@ -32,6 +33,8 @@ export interface ClientOptions {
   onChange?(): void;
   onCombatEvents?(events: readonly CombatEvent[]): void;
   onRequestFailed?(reason: string): void;
+  /** The DM asked everyone to look at this cell. */
+  onFocus?(cell: Cell): void;
 }
 
 /**
@@ -193,6 +196,9 @@ export class ClientSession {
         if (this.state) {
           this.state = { ...this.state, log: insertLogEntry(this.state.log, message.entry, MAX_SNAPSHOT_LOG) };
         }
+        return;
+      case 'focus':
+        this.options.onFocus?.(message.cell);
         return;
       case 'ping':
         this.options.send({ type: 'pong' });

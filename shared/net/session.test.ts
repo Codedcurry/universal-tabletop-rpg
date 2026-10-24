@@ -598,3 +598,26 @@ describe('live map editing', () => {
     expect(ana.failures).toEqual([expect.stringMatching(/reach/i)]);
   });
 });
+
+describe('"focus everyone here"', () => {
+  it("points every connected player's camera at a spot", () => {
+    const network = createTestNetwork();
+    const ana = network.join('Ana');
+    const ben = network.join('Ben');
+    ben.disconnect();
+    network.host.focusPlayers({ q: 2, r: 3 });
+    network.flush();
+    expect(ana.focuses).toEqual([{ q: 2, r: 3 }]);
+    expect(ben.focuses).toEqual([]);
+  });
+
+  it('is a one-off nudge, not shared state: late joiners are not sent there', () => {
+    const network = createTestNetwork();
+    network.join('Ana');
+    network.host.focusPlayers({ q: 2, r: 3 });
+    const before = network.host.snapshot().version;
+    const cat = network.join('Cat');
+    expect(cat.focuses).toEqual([]);
+    expect(network.host.snapshot().version).toBeGreaterThan(before); // only the join changed state
+  });
+});

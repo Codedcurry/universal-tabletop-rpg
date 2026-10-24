@@ -79,12 +79,14 @@ export function MapEditor({ session }: { readonly session: HostSession }) {
   const [level, setLevel] = useState(0);
   const [history, setHistory] = useState<EditHistory>(EMPTY_HISTORY);
   const [preview, setPreview] = useState<Cell[]>([]);
+  /** A drag is in progress (shows how to cancel it), and whether it was started by touch. */
+  const [drawing, setDrawing] = useState<'mouse' | 'touch' | null>(null);
   const [hovered, setHovered] = useState<Cell | null>(null);
   const [touchEdits, setTouchEdits] = useState(true);
   const [panel, setPanel] = useState<'none' | 'new' | 'generate'>('none');
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  /** Bumped to re-frame the camera: after a new map, or "Re-center view". */
+  /** Bumped to re-frame the camera after a new map. */
   const [frameKey, setFrameKey] = useState(0);
   const stroke = useRef<Stroke | null>(null);
   const world = useMemo(() => (map ? createWorldMap(map) : null), [map]);
@@ -178,13 +180,23 @@ export function MapEditor({ session }: { readonly session: HostSession }) {
   // --- pointer handling ----------------------------------------------------
 
   function onPointer(pointer: TilePointer): void {
+    if (pointer.type === 'cancel') {
+      cancelStroke();
+      return;
+    }
     setHovered(pointer.cell);
     if (!world || !map) return;
     if (pointer.isTouch && !touchEdits) return;
 
     if (pointer.type === 'down') {
+      // Another finger touching down mid-stroke means "cancel" on a touch screen.
+      if (stroke.current) {
+        cancelStroke();
+        return;
+      }
       if (pointer.button !== 0 || !pointer.cell) return;
       stroke.current = { before: map, anchor: pointer.cell, last: null, touched: new Set() };
+      setDrawing(pointer.isTouch ? 'touch' : 'mouse');
       if (shape === 'fill' && !isWallTool(tool)) {
         const cells = fillArea(pointer.cell);
         if (cells === null) {
@@ -270,17 +282,39 @@ export function MapEditor({ session }: { readonly session: HostSession }) {
   function finishStroke(): void {
     const current = stroke.current;
     stroke.current = null;
+    setDrawing(null);
     setPreview([]);
     lastPreview.current = '';
     const after = session.snapshot().map;
     if (current && after) setHistory((h) => recordChange(h, current.before, after));
   }
 
-  // Ctrl+Z / Ctrl+Y (or Ctrl+Shift+Z), except while typing in a field.
+  /**
+   * Abandons the drag in progress: undoes whatever it already changed (brush
+   * strokes apply live), never applies a dragged shape, and leaves no undo step.
+   */
+  function cancelStroke(): void {
+    const current = stroke.current;
+    if (!current) return;
+    stroke.current = null;
+    setDrawing(null);
+    setPreview([]);
+    lastPreview.current = '';
+    const now = session.snapshot().map;
+    if (now) session.editMap(diffMaps(now, current.before));
+  }
+
+  // Ctrl+Z / Ctrl+Y (or Ctrl+Shift+Z), and Esc to cancel a drag, except while typing in a field.
   const stepRef = useRef(step);
   stepRef.current = step;
+  const cancelRef = useRef(cancelStroke);
+  cancelRef.current = cancelStroke;
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        cancelRef.current();
+        return;
+      }
       if (!(event.ctrlKey || event.metaKey) || (event.target as HTMLElement).closest('input, select, textarea')) return;
       const key = event.key.toLowerCase();
       if (key === 'z' && !event.shiftKey) stepRef.current('undo');
@@ -444,16 +478,28 @@ export function MapEditor({ session }: { readonly session: HostSession }) {
             highlight={preview}
             ghosts={ghosts}
             frameKey={frameKey}
+            overlay={
+              drawing === 'touch' ? (
+                <div className="stroke-hint" role="status">
+                  <span>Tap with a second finger to cancel</span>
+                  <button type="button" onClick={cancelStroke}>
+                    Cancel
+                  </button>
+                </div>
+              ) : drawing === 'mouse' ? (
+                <div className="stroke-hint" role="status">
+                  Right-click or Esc to cancel
+                </div>
+              ) : null
+            }
+            onFocusEveryone={(cell) => session.focusPlayers(cell)}
             onPointer={onPointer}
           />
-          <button type="button" className="recenter" onClick={() => setFrameKey((key) => key + 1)}>
-            Re-center view
-          </button>
           <p className="tile-info" data-testid="tile-info">
             {tileDescription(world, hovered)}
           </p>
           <p className="hint">
-            Left-click or drag to use the tool · right-drag to pan · middle-drag to turn · wheel to zoom ·{' '}
+            Left-click or drag to use the tool · right-drag to pan · wheel to zoom · Q/E or middle-drag to turn ·{' '}
             {TOOLS.find((entry) => entry.id === tool)?.hint}
           </p>
         </>

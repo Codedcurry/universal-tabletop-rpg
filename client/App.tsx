@@ -1,4 +1,5 @@
 import { useEffect, useReducer, useState } from 'react';
+import type { Cell } from '@shared/grid';
 import { normalizeRoomCode } from '@shared/net';
 import { demoCharacter } from './demo';
 import { joinedRoom, playerToken, rememberJoinedRoom, saveName, savedName } from './net/identity';
@@ -20,6 +21,7 @@ export function App() {
   const [view, setView] = useState<View>({ kind: 'home' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [focus, setFocus] = useState<{ cell: Cell; key: number } | null>(null);
   // Sessions are plain objects that report changes; re-render when they do.
   const [, rerender] = useReducer((count: number) => count + 1, 0);
 
@@ -49,6 +51,7 @@ export function App() {
       character: demoCharacter(name),
       onChange: rerender,
       onRequestFailed: (reason) => setError(reason),
+      onFocus: (cell) => setFocus((previous) => ({ cell, key: (previous?.key ?? 0) + 1 })),
     });
     setView({ kind: 'player', game, code });
   }
@@ -85,6 +88,6 @@ export function App() {
     case 'host':
       return <HostView game={view.game} />;
     case 'player':
-      return <PlayerView game={view.game} code={view.code} error={error} />;
+      return <PlayerView game={view.game} code={view.code} error={error} focus={focus} />;
   }
 }

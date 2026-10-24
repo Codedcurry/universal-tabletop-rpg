@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
+import type { CameraCommand, CameraView } from '@shared/camera';
 import type { Cell } from '@shared/grid';
 import type { MapData, WorldMap } from '@shared/map';
 import { type TilePointer, WorldView } from '../render/WorldView';
@@ -9,17 +10,32 @@ interface Props {
   readonly editing: boolean;
   readonly highlight?: readonly Cell[];
   readonly ghosts?: readonly Cell[];
-  /** Changing this re-frames the camera on the whole map (new map, "Re-center view"). */
+  /** Changing this re-frames the camera on the whole map (e.g. after a new map). */
   readonly frameKey?: number;
+  /** A cell the DM asked everyone to look at; `key` changes with each request. */
+  readonly focus?: { readonly cell: Cell; readonly key: number } | null;
+  /** DM only: shows "Focus everyone here", sending the cell in the middle of the view. */
+  onFocusEveryone?(cell: Cell): void;
+  /** Extra content floating over the bottom of the map (e.g. how to cancel a drag). */
+  readonly overlay?: ReactNode;
   onPointer(pointer: TilePointer): void;
 }
 
-/** Hosts a WorldView in React. The view is created once; props are pushed into it. */
 const NONE: readonly Cell[] = [];
 
-export function WorldCanvas({ map, editing, highlight = NONE, ghosts = NONE, frameKey = 0, onPointer }: Props) {
+function headingLabel(view: CameraView): string {
+  if (view.free) return 'Free camera';
+  if (view.mode === 'topDown') return 'Top-down · north up';
+  return `Facing ${view.cardinal}`;
+}
+
+/** Hosts a WorldView in React, with camera controls over it. The view is created once; props are pushed into it. */
+export function WorldCanvas(props: Props) {
+  const { map, editing, highlight = NONE, ghosts = NONE, frameKey = 0, focus = null, onFocusEveryone, overlay, onPointer } =
+    props;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const viewRef = useRef<WorldView | null>(null);
+  const [camera, setCamera] = useState<CameraView>({ mode: '2.5d', free: false, cardinal: 'north' });
   // The view calls the latest handler without being rebuilt when it changes.
   const handlerRef = useRef(onPointer);
   handlerRef.current = onPointer;
@@ -29,7 +45,9 @@ export function WorldCanvas({ map, editing, highlight = NONE, ghosts = NONE, fra
       handlerRef.current(pointer),
     );
     viewRef.current = view;
+    const stopListening = view.onCameraChange(setCamera);
     return () => {
+      stopListening();
       view.dispose();
       viewRef.current = null;
     };
@@ -43,8 +61,89 @@ export function WorldCanvas({ map, editing, highlight = NONE, ghosts = NONE, fra
   useEffect(() => {
     if (frameKey > 0) viewRef.current?.frameMap();
   }, [frameKey]);
+  useEffect(() => {
+    if (focus) viewRef.current?.focusCell(focus.cell);
+  }, [focus]);
 
-  return <canvas ref={canvasRef} className="world-canvas" data-testid="world-canvas" />;
+  const command = (next: CameraCommand) => viewRef.current?.cameraCommand(next);
+
+  // Q / E turn the view, except while typing in a field.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      if ((event.target as HTMLElement).closest('input, select, textarea')) return;
+      const key = event.key.toLowerCase();
+      if (key === 'q') viewRef.current?.cameraCommand({ type: 'turn', direction: 'left' });
+      else if (key === 'e') viewRef.current?.cameraCommand({ type: 'turn', direction: 'right' });
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const canTurn = camera.mode === '2.5d' || camera.free;
+
+  return (
+    <div className="world">
+      <canvas ref={canvasRef} className="world-canvas" data-testid="world-canvas" />
+      {overlay}
+      <span className="compass" data-testid="camera-heading">
+        {headingLabel(camera)}
+      </span>
+      <div className="camera-controls" role="toolbar" aria-label="Camera">
+        <button
+          type="button"
+          aria-label="Turn left"
+          title="Turn left (Q)"
+          disabled={!canTurn}
+          onClick={() => command({ type: 'turn', direction: 'left' })}
+        >
+          ⟲
+        </button>
+        <button
+          type="button"
+          aria-label="Turn right"
+          title="Turn right (E)"
+          disabled={!canTurn}
+          onClick={() => command({ type: 'turn', direction: 'right' })}
+        >
+          ⟳
+        </button>
+        <button
+          type="button"
+          aria-label="Top-down view"
+          aria-pressed={camera.mode === 'topDown'}
+          onClick={() => command({ type: 'setMode', mode: camera.mode === 'topDown' ? '2.5d' : 'topDown' })}
+        >
+          Top-down<span className="long"> view</span>
+        </button>
+        <button
+          type="button"
+          aria-label="Free camera"
+          aria-pressed={camera.free}
+          onClick={() => command({ type: 'setFree', free: !camera.free })}
+        >
+          Free<span className="long"> camera</span>
+        </button>
+        <button type="button" aria-label="Re-center view" onClick={() => viewRef.current?.frameMap()}>
+          <span className="long">Re-c</span><span className="short">C</span>enter<span className="long"> view</span>
+        </button>
+        {onFocusEveryone && (
+          <button
+            type="button"
+            aria-label="Focus everyone here"
+            title="Moves every player's camera to look where you're looking"
+            onClick={() => {
+              const cell = viewRef.current?.centerCell();
+              if (cell) onFocusEveryone(cell);
+            }}
+          >
+            Focus<span className="long"> everyone here</span>
+            <span className="short"> all</span>
+          </button>
+        )}
+      </div>
+    </div>
+  );
 }
 
 /** One-line description of a map, shown above the view. */

@@ -1,5 +1,6 @@
 import { type DataConnection, Peer } from 'peerjs';
 import type { CombatEvent } from '@shared/combat';
+import type { Cell } from '@shared/grid';
 import {
   ClientSession,
   FrameAssembler,
@@ -131,6 +132,7 @@ export interface JoinOptions {
   onChange(): void;
   onCombatEvents?(events: readonly CombatEvent[]): void;
   onRequestFailed?(reason: string): void;
+  onFocus?(cell: Cell): void;
 }
 
 /** Connects to the DM's room and keeps reconnecting with backoff until told to leave. */
@@ -154,6 +156,7 @@ export function joinGame(options: JoinOptions): JoinedGame {
     onChange: options.onChange,
     ...(options.onCombatEvents ? { onCombatEvents: options.onCombatEvents } : {}),
     ...(options.onRequestFailed ? { onRequestFailed: options.onRequestFailed } : {}),
+    ...(options.onFocus ? { onFocus: options.onFocus } : {}),
   });
 
   function resetPeer(): void {

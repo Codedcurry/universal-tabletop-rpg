@@ -1,4 +1,3 @@
-import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera';
 import { Engine } from '@babylonjs/core/Engines/engine';
 import { PointerEventTypes } from '@babylonjs/core/Events/pointerEvents';
 import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight';
@@ -14,7 +13,9 @@ import '@babylonjs/core/Culling/ray';
 import '@babylonjs/core/Meshes/thinInstanceMesh';
 import { type Cell, type Grid, type WorldPoint, createGrid } from '@shared/grid';
 import { DEFAULT_TERRAIN, type MapData, rayPick } from '@shared/map';
+import type { CameraCommand, CameraView } from '@shared/camera';
 import type { StylePack } from '../style/stylePack';
+import { CameraRig } from './CameraRig';
 
 // Draws a map in 3D and reports what the pointer is over. No game logic:
 // it only turns map data into meshes and pointer positions into cells.
@@ -22,7 +23,11 @@ import type { StylePack } from '../style/stylePack';
 // 100 x 100 map is a handful of draw calls.
 
 export interface TilePointer {
-  readonly type: 'down' | 'move' | 'up';
+  /**
+   * `cancel`: abandon the drag in progress: the right button pressed while the
+   * left is held, or a second finger touching down on a touch screen.
+   */
+  readonly type: 'down' | 'move' | 'up' | 'cancel';
   /** The tile under the pointer, or null over empty space. */
   readonly cell: Cell | null;
   /** Where the pointer meets the tile's top surface. */
@@ -47,7 +52,7 @@ function color(hex: string): Color3 {
 export class WorldView {
   private readonly engine: Engine;
   private readonly scene: Scene;
-  private readonly camera: ArcRotateCamera;
+  private readonly rig: CameraRig;
   private readonly materials = new Map<string, StandardMaterial>();
   private readonly resizeObserver: ResizeObserver;
   /** Meshes made for the current map; rebuilt when the map changes. */
@@ -64,6 +69,9 @@ export class WorldView {
   private dirty = true;
   private lastView = '';
   private activeUntil = 0;
+  private lastFrame = 0;
+  /** Frame the camera on the map at the next drawn frame. */
+  private needsFraming = false;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -77,20 +85,14 @@ export class WorldView {
     canvas.focus = (options?: FocusOptions) => focus({ ...options, preventScroll: true });
     this.engine = new Engine(canvas, true, { stencil: true });
     this.scene = new Scene(this.engine);
+    // Right-handed, like the grid math: facing north, east (+x) is on the right.
+    // Babylon's default left-handed space showed every map mirrored.
+    this.scene.useRightHandedSystem = true;
     this.scene.clearColor = Color4.FromHexString(`${style.background}ff`);
 
-    this.camera = new ArcRotateCamera('camera', -Math.PI / 2, 0.95, 20, Vector3.Zero(), this.scene);
-    // Let the camera block the browser's own handling (page scrolling) of its input.
-    this.camera.attachControl(false);
-    // Babylon maps left = turn, right (or Ctrl+left) = pan, wheel = zoom.
-    // Middle-drag turns too, which edit mode relies on (left is the tool there).
-    this.camera.movement.input.addEntry({ source: 'pointer', button: 1, interaction: 'rotate' });
-    this.camera.lowerBetaLimit = 0.15;
-    this.camera.upperBetaLimit = 1.35; // never below the ground
-    this.camera.lowerRadiusLimit = 3;
-    this.camera.wheelPrecision = 30;
-    this.camera.panningSensibility = 60;
-    this.setEditing(false);
+    this.rig = new CameraRig(this.scene, canvas);
+    this.rig.setGroundLevel(style.levelHeight); // the top of a level-0 tile
+    this.rig.onViewChange(() => this.markActive());
 
     const sky = new HemisphericLight('sky', new Vector3(0.2, 1, -0.3), this.scene);
     sky.intensity = 0.75;
@@ -102,6 +104,9 @@ export class WorldView {
     // The wheel zooms the map, never the page; middle-click mustn't start the browser's autoscroll.
     canvas.addEventListener('wheel', this.onWheel, { passive: false });
     canvas.addEventListener('mousedown', this.onMouseDown);
+    canvas.addEventListener('pointerdown', this.onTouchDown);
+    canvas.addEventListener('pointerup', this.onTouchUp);
+    canvas.addEventListener('pointercancel', this.onTouchUp);
     for (const type of ['pointerdown', 'pointermove', 'pointerup', 'wheel'] as const) {
       canvas.addEventListener(type, this.markActive, { passive: true });
     }
@@ -130,6 +135,17 @@ export class WorldView {
     // they continue while the camera is still gliding to a stop.
     this.engine.runRenderLoop(() => {
       const now = performance.now();
+      // Seconds since the last drawn frame, capped so a long idle pause isn't one giant step.
+      const dt = Math.min(0.1, (now - (this.lastFrame || now)) / 1000);
+      this.lastFrame = now;
+      // Framing waits for a real frame: right after the view is created its
+      // camera projection isn't ready, and every fit test would fail.
+      if (this.needsFraming && this.map && this.grid && this.canvas.clientWidth > 0) {
+        this.needsFraming = false;
+        this.frame(this.map, this.grid, this.style.cellSize);
+        this.dirty = true;
+      }
+      if (this.rig.update(dt)) this.activeUntil = Math.max(this.activeUntil, now + GLIDE_MS);
       if (!this.dirty && now > this.activeUntil) return;
       this.scene.render();
       const view = this.cameraState();
@@ -151,24 +167,64 @@ export class WorldView {
 
   private readonly onWheel = (event: WheelEvent) => event.preventDefault();
 
+  /** Fingers currently on the canvas. */
+  private readonly touchesDown = new Set<number>();
+
+  private readonly onTouchDown = (event: PointerEvent) => {
+    if (event.pointerType !== 'touch') return;
+    if (this.touchesDown.size > 0) {
+      this.onPointer({ type: 'cancel', cell: null, point: null, button: 0, isTouch: true });
+    }
+    this.touchesDown.add(event.pointerId);
+  };
+
+  private readonly onTouchUp = (event: PointerEvent) => {
+    this.touchesDown.delete(event.pointerId);
+  };
+
   private readonly onMouseDown = (event: MouseEvent) => {
     if (event.button === 1) event.preventDefault();
+    // A right-click while the left button is held (a chord: no pointerdown event fires for it).
+    if (event.button === 2 && (event.buttons & 1) !== 0) {
+      this.onPointer({ type: 'cancel', cell: null, point: null, button: 2, isTouch: false });
+    }
   };
 
   /** Changes whenever the camera moves (including while it glides to a stop). */
   private cameraState(): string {
-    const { alpha, beta, radius, target } = this.camera;
+    const { alpha, beta, radius, target } = this.rig.camera;
     return `${alpha.toFixed(5)},${beta.toFixed(5)},${radius.toFixed(4)},${target.x.toFixed(4)},${target.y.toFixed(4)},${target.z.toFixed(4)}`;
   }
 
-  /**
-   * Edit mode frees the left mouse button for tools: right-drag pans,
-   * middle-drag turns, the wheel zooms. Touch rotates and pinches only in
-   * view mode (a toggle in the UI), since one finger paints in edit mode.
-   */
+  /** Edit mode gives the left mouse button (and one finger) to the editing tools. */
   setEditing(editing: boolean): void {
-    const pointers = this.camera.inputs.attached.pointers as unknown as { buttons: number[] } | undefined;
-    if (pointers) pointers.buttons = editing ? [1, 2] : [0, 1, 2];
+    this.rig.setEditing(editing);
+  }
+
+  get cameraView(): CameraView {
+    return this.rig.cameraView;
+  }
+
+  onCameraChange(listener: (view: CameraView) => void): () => void {
+    return this.rig.onViewChange(listener);
+  }
+
+  /** Turn, switch top-down, or toggle free camera. */
+  cameraCommand(command: CameraCommand): void {
+    this.rig.command(command);
+    this.markActive();
+  }
+
+  /** Glides the camera to look at a cell (the DM's "focus everyone here"). */
+  focusCell(cell: Cell): void {
+    if (!this.grid) return;
+    this.rig.focusOn(this.grid.toWorld(cell, this.style.cellSize));
+    this.markActive();
+  }
+
+  /** The cell in the middle of the view. */
+  centerCell(): Cell | null {
+    return this.grid ? this.grid.fromWorld(this.rig.target, this.style.cellSize) : null;
   }
 
   setMap(map: MapData | null): void {
@@ -187,7 +243,19 @@ export class WorldView {
     this.grid = grid;
     this.heights = new Map(map.tiles.map((tile) => [`${tile.q},${tile.r}`, tile.height]));
     this.ceiling = (Math.max(0, ...map.tiles.map((tile) => tile.height)) + 1) * this.style.levelHeight;
-    const { cellSize, levelHeight } = this.style;
+    // The camera always looks at a point over the map.
+    const centers = map.tiles.map((tile) => grid.toWorld(tile, this.style.cellSize));
+    this.rig.setBounds(
+      centers.length === 0
+        ? null
+        : {
+            minX: Math.min(...centers.map((p) => p.x)),
+            maxX: Math.max(...centers.map((p) => p.x)),
+            minZ: Math.min(...centers.map((p) => p.z)),
+            maxZ: Math.max(...centers.map((p) => p.z)),
+          },
+    );
+    const { levelHeight } = this.style;
 
     // One mesh per terrain, one thin instance per tile.
     const byTerrain = new Map<string, Cell[]>();
@@ -231,14 +299,14 @@ export class WorldView {
     // appears or the grid type changes; otherwise only when asked (frameMap).
     if (map.grid !== this.framedFor) {
       this.framedFor = map.grid;
-      this.frame(map, grid, cellSize);
+      this.needsFraming = true;
     }
     this.invalidate();
   }
 
   /** Points the camera at the whole map again (a new map, or "Re-center view"). */
   frameMap(): void {
-    if (this.map && this.grid) this.frame(this.map, this.grid, this.style.cellSize);
+    this.needsFraming = true;
     this.invalidate();
   }
 
@@ -281,10 +349,14 @@ export class WorldView {
     this.canvas.removeEventListener('contextmenu', preventDefault);
     this.canvas.removeEventListener('wheel', this.onWheel);
     this.canvas.removeEventListener('mousedown', this.onMouseDown);
+    this.canvas.removeEventListener('pointerdown', this.onTouchDown);
+    this.canvas.removeEventListener('pointerup', this.onTouchUp);
+    this.canvas.removeEventListener('pointercancel', this.onTouchUp);
     for (const type of ['pointerdown', 'pointermove', 'pointerup', 'wheel'] as const) {
       this.canvas.removeEventListener(type, this.markActive);
     }
     this.resizeObserver.disconnect();
+    this.rig.dispose();
     this.engine.dispose();
   }
 
@@ -299,7 +371,7 @@ export class WorldView {
   private pick(): { cell: Cell | null; point: WorldPoint | null } {
     const grid = this.grid;
     if (!grid) return { cell: null, point: null };
-    const ray = this.scene.createPickingRay(this.scene.pointerX, this.scene.pointerY, Matrix.Identity(), this.camera);
+    const ray = this.scene.createPickingRay(this.scene.pointerX, this.scene.pointerY, Matrix.Identity(), this.rig.camera);
     const hit = rayPick(
       grid,
       (cell) => (this.heights.has(`${cell.q},${cell.r}`) ? this.tileTop(cell) : undefined),
@@ -385,10 +457,6 @@ export class WorldView {
     if (map.tiles.length === 0) return;
     // Fit to the canvas's real size, which may not have been measured yet.
     this.engine.resize();
-    // Stop any glide still in progress (a recent drag or scroll), or it would carry on after framing.
-    this.camera.movement.resetRotationVelocity();
-    this.camera.movement.resetPanVelocity();
-    this.camera.movement.resetZoomVelocity();
     const points = map.tiles.map((tile) => grid.toWorld(tile, cellSize));
     const xs = points.map((p) => p.x);
     const zs = points.map((p) => p.z);
@@ -398,26 +466,43 @@ export class WorldView {
     const corners = [minX - margin, maxX + margin].flatMap((x) =>
       [minZ - margin, maxZ + margin].flatMap((z) => [new Vector3(x, 0, z), new Vector3(x, top, z)]),
     );
-    this.camera.target = new Vector3((minX + maxX) / 2, 0, (minZ + maxZ) / 2);
-    this.camera.alpha = -Math.PI / 2;
-    this.camera.beta = 0.95;
+    const target = { x: (minX + maxX) / 2, z: (minZ + maxZ) / 2 };
     // Find the closest distance where every corner of the map is on screen,
     // whatever the view's shape (a tall phone needs the camera further back).
     let near = 1;
     let far = 1000;
     for (let i = 0; i < 30; i++) {
       const radius = (near + far) / 2;
-      if (this.fits(corners, radius)) far = radius;
+      if (this.fits(corners, target, radius)) far = radius;
       else near = radius;
     }
-    this.camera.radius = far;
-    this.camera.upperRadiusLimit = far * 2.5;
+    this.rig.place(target, far);
+    this.rig.setMaxDistance(far * 2.5);
   }
 
   /** Whether all points land inside the view (with a small border) at this camera distance. */
-  private fits(points: readonly Vector3[], radius: number): boolean {
-    this.camera.radius = radius;
-    const transform = this.camera.getViewMatrix(true).multiply(this.camera.getProjectionMatrix(true));
+  private fits(points: readonly Vector3[], target: { x: number; z: number }, radius: number): boolean {
+    // Measured with the direction and tilt the camera is settling on, not mid-turn.
+    // The matrices are built here from those angles: asking Babylon's camera
+    // for them right after moving it can return a stale position.
+    this.rig.place(target, radius);
+    const camera = this.rig.camera;
+    const center = new Vector3(target.x, camera.target.y, target.z);
+    const position = center.add(
+      new Vector3(
+        radius * Math.cos(camera.alpha) * Math.sin(camera.beta),
+        radius * Math.cos(camera.beta),
+        radius * Math.sin(camera.alpha) * Math.sin(camera.beta),
+      ),
+    );
+    const view = Matrix.LookAtRH(position, center, Vector3.Up());
+    const projection = Matrix.PerspectiveFovRH(
+      camera.fov,
+      this.engine.getRenderWidth() / Math.max(1, this.engine.getRenderHeight()),
+      camera.minZ,
+      camera.maxZ,
+    );
+    const transform = view.multiply(projection);
     return points.every((point) => {
       const projected = Vector3.TransformCoordinates(point, transform);
       return Math.abs(projected.x) <= 0.95 && Math.abs(projected.y) <= 0.95 && projected.z > 0 && projected.z < 1;

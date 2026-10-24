@@ -339,13 +339,29 @@ test('Ring draws a hollow outline, and Fill stays inside it', async ({ browser }
   const box = (await dm.page.getByTestId('world-canvas').boundingBox())!;
   const { x, y } = await canvasCenter(dm.page);
 
-  // A stone ring, about two and a half tiles out from the middle.
+  // A stone ring two tiles out from the middle. Find, by hovering, the point
+  // two tiles to the right, rather than guessing a pixel distance.
+  const cellAt = async (px: number) => {
+    await dm.page.mouse.move(px, y);
+    const match = (await tileInfo(dm.page).textContent())?.match(/Tile \((-?\d+), (-?\d+)\)/);
+    return match ? { q: Number(match[1]), r: Number(match[2]) } : null;
+  };
+  const middle = (await cellAt(x))!;
+  let ringX = x;
+  for (let px = x; px < box.x + box.width; px += 4) {
+    const cell = await cellAt(px);
+    if (cell && cell.r === middle.r && cell.q === middle.q + 2) {
+      ringX = px;
+      break;
+    }
+  }
+  expect(ringX).toBeGreaterThan(x);
   await dm.page.getByRole('button', { name: 'Paint' }).click();
   await dm.page.getByLabel('Terrain').selectOption('stone');
   await dm.page.getByLabel('Shape').selectOption({ label: 'Ring' });
   await dm.page.mouse.move(x, y);
   await dm.page.mouse.down();
-  await dm.page.mouse.move(x + box.width * 0.25, y, { steps: 10 });
+  await dm.page.mouse.move(ringX, y, { steps: 10 });
   await dm.page.mouse.up();
 
   // Fill the middle with sand.
@@ -448,4 +464,81 @@ test('the camera stays put while editing, and Re-center view brings the map back
   await ana.page.getByRole('button', { name: 'Re-center view' }).click();
   await ana.page.mouse.move(0, 0);
   await expect.poll(async () => (await view(ana.page)).equals(centered), { timeout: 5_000 }).toBe(true);
+});
+
+test('a drag in progress can be cancelled with right-click or Esc, and nothing changes', async ({ browser }) => {
+  const dm = await host(browser);
+  const ana = await join(browser, dm.link, 'Ana');
+  await newMap(dm.page, 'Hex', 9, 7);
+  await expect(summary(ana.page)).toContainText('63 tiles');
+  const box = (await dm.page.getByTestId('world-canvas').boundingBox())!;
+  const { x, y } = await canvasCenter(dm.page);
+  const beyondRight = box.x + box.width - 6;
+
+  // Brushing Add tiles out into empty space adds tiles live; right-click undoes the whole stroke.
+  await dm.page.getByRole('button', { name: 'Add tiles' }).click();
+  await dm.page.mouse.move(x, y);
+  await dm.page.mouse.down();
+  await dm.page.mouse.move(beyondRight, y, { steps: 20 });
+  await expect(dm.page.getByText('Right-click or Esc to cancel')).toBeVisible();
+  await expect.poll(async () => Number((await summary(dm.page).textContent())?.match(/(\d+) tiles/)?.[1])).toBeGreaterThan(63);
+  await dm.page.mouse.down({ button: 'right' });
+  await dm.page.mouse.up({ button: 'right' });
+  await dm.page.mouse.up();
+  await expect(summary(ana.page)).toContainText('63 tiles');
+  await expect(dm.page.getByText('Right-click or Esc to cancel')).toHaveCount(0);
+  // A cancelled stroke leaves nothing to undo.
+  await expect(dm.page.getByRole('button', { name: 'Undo' })).toBeDisabled();
+
+  // Esc cancels a rectangle being dragged: it is never applied.
+  await dm.page.getByLabel('Shape').selectOption({ label: 'Rectangle' });
+  await dm.page.mouse.move(x, y);
+  await dm.page.mouse.down();
+  await dm.page.mouse.move(beyondRight, y + 40, { steps: 10 });
+  await dm.page.keyboard.press('Escape');
+  await dm.page.mouse.up();
+  await expect(summary(ana.page)).toContainText('63 tiles');
+
+  // Raise with the brush, cancelled: heights go back.
+  await dm.page.getByRole('button', { name: 'Raise' }).click();
+  await dm.page.getByLabel('Shape').selectOption({ label: 'Brush' });
+  await dm.page.mouse.move(x - 100, y);
+  await dm.page.mouse.down();
+  await dm.page.mouse.move(x + 100, y, { steps: 10 });
+  await expect(summary(dm.page)).toContainText('heights 0–1');
+  await dm.page.mouse.down({ button: 'right' });
+  await dm.page.mouse.up({ button: 'right' });
+  await dm.page.mouse.up();
+  await expect(summary(ana.page)).toContainText('heights 0–0');
+});
+
+test('on a touch screen, a second finger (or the Cancel button) cancels a drag', async ({ browser }) => {
+  const context = await browser.newContext({ hasTouch: true });
+  openContexts.push(context);
+  const page = await context.newPage();
+  await page.goto('/');
+  await page.getByLabel('Your name').fill('Dana');
+  await page.getByRole('button', { name: 'Host a game' }).click();
+  await newMap(page, 'Hex', 9, 7);
+  await page.getByRole('button', { name: 'Add tiles' }).click();
+  const box = (await page.getByTestId('world-canvas').boundingBox())!;
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  const cdp = await context.newCDPSession(page);
+  const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd', points: { x: number; y: number; id: number }[]) =>
+    cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points });
+
+  // One finger drags out into empty space, adding tiles.
+  await touch('touchStart', [{ x, y, id: 0 }]);
+  for (let step = 1; step <= 15; step++) await touch('touchMove', [{ x: x + (step / 15) * (box.width / 2 - 8), y, id: 0 }]);
+  await expect.poll(async () => Number((await summary(page).textContent())?.match(/(\d+) tiles/)?.[1])).toBeGreaterThan(63);
+  await expect(page.getByRole('button', { name: 'Cancel' })).toBeVisible();
+  await expect(page.getByText('Tap with a second finger to cancel')).toBeVisible();
+
+  // A second finger touches down: the stroke is cancelled.
+  const end = { x: x + box.width / 2 - 8, y, id: 0 };
+  await touch('touchStart', [end, { x: x - 200, y: y + 50, id: 1 }]);
+  await touch('touchEnd', []);
+  await expect(summary(page)).toContainText('63 tiles');
+  await expect(page.getByRole('button', { name: 'Cancel' })).toHaveCount(0);
 });

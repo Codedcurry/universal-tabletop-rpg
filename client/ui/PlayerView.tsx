@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import type { Cell } from '@shared/grid';
 import type { JoinedGame } from '../net/transport';
 import { CombatPanel } from './CombatPanel';
 import { LogPanel } from './LogPanel';
@@ -21,7 +22,14 @@ function statusText(game: JoinedGame, code: string): string {
   }
 }
 
-export function PlayerView({ game, code, error }: { readonly game: JoinedGame; readonly code: string; readonly error: string | null }) {
+interface Props {
+  readonly game: JoinedGame;
+  readonly code: string;
+  readonly error: string | null;
+  readonly focus: { readonly cell: Cell; readonly key: number } | null;
+}
+
+export function PlayerView({ game, code, error, focus }: Props) {
   const { session } = game;
   const state = session.state;
   const [localError, setLocalError] = useState<string | null>(null);
@@ -50,7 +58,7 @@ export function PlayerView({ game, code, error }: { readonly game: JoinedGame; r
       {state && (
         <section className="card">
           <h2>Map</h2>
-          <MapViewer map={state.map} />
+          <MapViewer map={state.map} focus={focus} />
         </section>
       )}
 

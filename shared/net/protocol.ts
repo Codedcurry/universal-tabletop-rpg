@@ -119,7 +119,9 @@ export type HostMessage =
   /** A log entry only some participants may see (a whisper). Not versioned. */
   | { readonly type: 'private'; readonly entry: LogEntry }
   | { readonly type: 'requestFailed'; readonly requestId: string; readonly reason: string }
-  | { readonly type: 'ping' };
+  | { readonly type: 'ping' }
+  /** "Focus everyone here": a one-off nudge for players' cameras, not session state. */
+  | { readonly type: 'focus'; readonly cell: Cell };
 
 // ---------------------------------------------------------------------------
 // Validation of untrusted client messages
@@ -219,7 +221,7 @@ export function parseClientMessage(data: unknown): ClientMessage | null {
   }
 }
 
-const HOST_MESSAGE_TYPES = new Set(['welcome', 'joinRejected', 'snapshot', 'update', 'private', 'requestFailed', 'ping']);
+const HOST_MESSAGE_TYPES = new Set(['welcome', 'joinRejected', 'snapshot', 'update', 'private', 'requestFailed', 'ping', 'focus']);
 
 /** Light check for messages from the DM, who is trusted; guards against stray data. */
 export function parseHostMessage(data: unknown): HostMessage | null {
