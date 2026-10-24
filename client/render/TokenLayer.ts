@@ -1,3 +1,4 @@
+import { Material } from '@babylonjs/core/Materials/material';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTexture';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture';
@@ -31,6 +32,7 @@ import {
   teamColor,
 } from '../style/placeholderSprites';
 import type { StylePack } from '../style/stylePack';
+import type { SceneEffects } from './SceneEffects';
 
 // Creatures on the map: a sprite that always faces the camera (2.5D) or a
 // round token (top-down), with an HTML name tag and HP bar floating above,
@@ -97,6 +99,7 @@ export class TokenLayer {
     private readonly style: StylePack,
     private readonly overlay: HTMLDivElement,
     private readonly onTokenClick: (id: string) => void,
+    private readonly effects?: SceneEffects,
   ) {
     // The creature acting stands on a bright ring with a soft glow inside, in a color apart from the
     // move highlight (which surrounds it), plus the HTML arrow over its name tag.
@@ -118,6 +121,7 @@ export class TokenLayer {
     glow.isPickable = false;
     glow.parent = this.activeRing;
     this.activeRing.setEnabled(false);
+    effects?.addGlow(this.activeRing);
   }
 
   /** The map the tokens stand on (for tile heights and positions). */
@@ -352,6 +356,10 @@ export class TokenLayer {
     material.emissiveColor = Color3.White();
     material.useAlphaFromDiffuseTexture = true;
     material.backFaceCulling = false;
+    // Pixel art is fully opaque or fully clear: alpha testing keeps edges crisp, lets the sprite
+    // cast a shadow of its shape, and keeps see-through highlights from drawing over it.
+    material.transparencyMode = Material.MATERIAL_ALPHATEST;
+    material.alphaCutOff = 0.5;
 
     const sprite = CreatePlane(`sprite-${id}`, { width: SPRITE_W, height: SPRITE_H }, this.scene);
     sprite.parent = pivot;
@@ -361,6 +369,7 @@ export class TokenLayer {
     sprite.renderOverlay = true;
     sprite.overlayColor = Color3.Red();
     sprite.overlayAlpha = 0;
+    this.effects?.addShadowCaster(sprite, false);
 
     const discTexture = new DynamicTexture(`disc-${id}`, { width: 64, height: 64 }, this.scene, true);
     discTexture.hasAlpha = true;

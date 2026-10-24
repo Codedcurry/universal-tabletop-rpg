@@ -7,6 +7,7 @@ import {
   type CombatContext,
   type CombatState,
   type CombatantSetup,
+  abilityReach,
   applyAction,
   moveOptions,
   setupFromMonster,
@@ -107,5 +108,54 @@ describe('targetOptions', () => {
     const state = fight();
     expect(targetOptions(ctx, { ...state, actionUsed: true }, 'hero', 'strike')).toEqual([]);
     expect(targetOptions(ctx, state, 'hero', 'fireball')).toEqual([]);
+  });
+});
+
+describe('abilityReach', () => {
+  const keys = (cells: readonly Cell[]) => cells.map(cellKey).sort();
+  const grid = ctx.map.grid;
+
+  it('covers every tile within range, except the user\'s own and solid ones', () => {
+    const reach = abilityReach(ctx, fight(), 'hero', 'shoot'); // range 6
+    expect(reach.length).toBeGreaterThan(20);
+    for (const cell of reach) {
+      expect(grid.distance(c(2, 3), cell)).toBeLessThanOrEqual(6);
+      expect(ctx.map.tile(cell)).toBeDefined();
+    }
+    expect(keys(reach)).not.toContain('2,3');
+    expect(keys(reach)).not.toContain('4,4'); // solid
+    expect(keys(reach)).toContain('6,1'); // the far goblin
+  });
+
+  it('is just the neighbors for a melee attack', () => {
+    const reach = abilityReach(ctx, fight(), 'hero', 'strike'); // range 1
+    expect(reach.every((cell) => grid.distance(c(2, 3), cell) === 1)).toBe(true);
+    expect(reach).toHaveLength(6);
+  });
+
+  it('is the user\'s own tile for a self-only ability', () => {
+    expect(abilityReach(ctx, fight(), 'hero', 'second_wind')).toEqual([c(2, 3)]);
+  });
+
+  it('holds every creature the ability can target', () => {
+    const state = fight();
+    for (const ability of ['strike', 'shoot', 'mend', 'second_wind']) {
+      const reach = new Set(keys(abilityReach(ctx, state, 'hero', ability)));
+      for (const id of targetOptions(ctx, state, 'hero', ability)) {
+        expect(reach.has(cellKey(state.combatants[id]!.position))).toBe(true);
+      }
+    }
+  });
+
+  it("can be previewed any time, even when it isn't the creature's turn or its action is spent", () => {
+    const state = fight();
+    expect(abilityReach(ctx, state, 'cleric', 'mend').length).toBeGreaterThan(0);
+    const spent = applyAction(ctx, state, { type: 'useAbility', actorId: 'hero', abilityId: 'strike', targetId: 'near' }, scriptedRandom([10, 3]));
+    if (!spent.ok) throw new Error(spent.reason);
+    expect(abilityReach(ctx, spent.state, 'hero', 'shoot').length).toBeGreaterThan(20);
+  });
+
+  it('is empty for an ability the creature lacks', () => {
+    expect(abilityReach(ctx, fight(), 'cleric', 'shoot')).toEqual([]);
   });
 });

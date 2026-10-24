@@ -16,6 +16,12 @@ export default defineConfig({
   use: {
     baseURL: `http://localhost:${APP_PORT}`,
     trace: 'retain-on-failure',
+    // Headless Chrome draws in software: start on Low graphics so effects don't slow every test.
+    // e2e/graphics.spec.ts clears this to test the real defaults and every setting.
+    storageState: {
+      cookies: [],
+      origins: [{ origin: `http://localhost:${APP_PORT}`, localStorage: [{ name: 'graphics-quality', value: 'low' }] }],
+    },
     ...devices['Desktop Chrome'],
     launchOptions: {
       // Let two local browser sessions see each other's real addresses.

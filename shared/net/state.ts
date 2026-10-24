@@ -43,7 +43,7 @@ export function applyUpdate(
     case 'players':
       return { ...next, players: update.players };
     case 'settings':
-      return { ...next, dmTitle: update.dmTitle, rollMode: update.rollMode };
+      return { ...next, dmTitle: update.dmTitle, rollMode: update.rollMode, playersControlOwn: update.playersControlOwn };
     case 'system':
       return { ...next, system: update.system };
     case 'map':

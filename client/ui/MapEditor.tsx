@@ -532,6 +532,8 @@ export function MapEditor({ session, combatEvents, editing, toolsSlot, onMapClic
             editing={editing && touchEdits}
             highlight={editing ? preview : play.highlight}
             highlightKind={editing ? 'brush' : play.highlightKind}
+            reach={editing ? NO_CELLS : play.reach}
+            reachKind={play.reachKind}
             ghosts={editing ? ghosts : NO_CELLS}
             combat={snapshot.combat}
             system={snapshot.system}

@@ -1,6 +1,7 @@
 export type * from './types';
 export {
   CombatSetupError,
+  abilityReach,
   activeCombatant,
   applyAction,
   moveOptions,

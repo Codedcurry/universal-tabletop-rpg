@@ -1,5 +1,5 @@
 import { evaluateFormula, parseFormula } from '../formula';
-import { cellKey, headingBetween } from '../grid';
+import { type Cell, cellKey, headingBetween } from '../grid';
 import { type Occupant, type Reach, findPath, reachable } from '../movement';
 import type { RandomSource } from '../random';
 import {
@@ -549,4 +549,24 @@ export function targetOptions(ctx: CombatContext, state: CombatState, actorId: s
       }
     })
     .map(([id]) => id);
+}
+
+/**
+ * The tiles an ability reaches from where the creature stands: every
+ * standable tile within its range. Its own tile counts only if it can be its
+ * own target (an ally ability, or a self-only one, which reaches nothing else).
+ * For showing an ability's range, so it ignores whose turn it is and whether
+ * the action is spent; who can actually be targeted is `targetOptions`.
+ */
+export function abilityReach(ctx: CombatContext, state: CombatState, combatantId: string, abilityId: string): Cell[] {
+  const creature = state.combatants[combatantId];
+  const ability = ctx.system.abilities.find((entry) => entry.id === abilityId);
+  if (!creature || !ability || !creature.sheet.abilities.includes(abilityId)) return [];
+  if (ability.target === 'self') return [creature.position];
+  const from = creature.position;
+  return ctx.map.cells().filter((cell) => {
+    if (cell.q === from.q && cell.r === from.r) return ability.target === 'ally';
+    if (ctx.map.tile(cell)?.blocked) return false;
+    return ctx.map.grid.distance(from, cell) <= ability.range;
+  });
 }

@@ -231,6 +231,14 @@ export function HostView({ game, combatEvents }: Props) {
                   ))}
                 </select>
               </label>
+              <label className="check" title="Off: you play everyone, apart from creatures you hand to a player">
+                <input
+                  type="checkbox"
+                  checked={state.playersControlOwn}
+                  onChange={(event) => session.setPlayersControlOwn(event.target.checked)}
+                />
+                Players control their own characters
+              </label>
               <h3>Players</h3>
               <Players players={state.players} />
             </div>

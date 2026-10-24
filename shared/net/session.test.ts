@@ -392,6 +392,37 @@ describe('combat', () => {
     expect(ana.session.canControl('goblin')).toBe(false);
   });
 
+  it("can stop players controlling their own characters, so the DM plays everyone, and hand it back", () => {
+    const network = createTestNetwork();
+    const ana = network.join('Ana', { character: anaSheet });
+    const characterId = setupCombat(network, ana);
+    expect(ana.session.state?.playersControlOwn).toBe(true);
+    network.host.setPlayersControlOwn(false);
+    network.flush();
+    expect(ana.session.state?.playersControlOwn).toBe(false);
+    expect(ana.session.canControl(characterId)).toBe(false);
+    ana.session.act({ type: 'endTurn', actorId: characterId });
+    network.flush();
+    expect(ana.failures).toEqual([expect.stringMatching(/don't control/i)]);
+    expect(network.host.act({ type: 'endTurn', actorId: characterId }).ok).toBe(true);
+    expect(texts(network.host.snapshot().log)).toContain('DM now controls the players\' characters');
+
+    network.host.setPlayersControlOwn(true);
+    network.flush();
+    expect(ana.session.canControl(characterId)).toBe(true);
+    expect(texts(network.host.snapshot().log)).toContain('Players control their own characters again');
+  });
+
+  it('keeps creatures the DM handed over, even while players don\'t control their own', () => {
+    const network = createTestNetwork();
+    const ana = network.join('Ana', { character: anaSheet });
+    setupCombat(network, ana);
+    network.host.setPlayersControlOwn(false);
+    network.host.grantControl('p1', 'goblin');
+    network.flush();
+    expect(ana.session.canControl('goblin')).toBe(true);
+  });
+
   it('lets the DM act for any creature', () => {
     const network = createTestNetwork();
     const ana = network.join('Ana', { character: anaSheet });

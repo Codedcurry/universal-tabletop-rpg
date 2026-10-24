@@ -196,3 +196,39 @@ test('the DM drags creatures in the list to change the turn order, before and du
   await expect(ana.getByTestId('turn-banner')).toContainText("Ogre's turn");
   await expect(ana.getByTestId('log')).toContainText('DM changes the turn order: Ana, Ogre, Goblin');
 });
+
+test('the DM decides who controls which creature, and can play the players\' characters', async ({ browser }) => {
+  const { dm, ana } = await table(browser);
+  await dm.getByRole('tab', { name: 'Encounter' }).click();
+  await addAndPlace(dm, 'Ana (player)', 0.25);
+  await addAndPlace(dm, 'Goblin', 0.7);
+
+  // Hand the goblin to Ana.
+  await clickMapAt(dm, 0.7);
+  const editor = encounter(dm).getByRole('group', { name: 'Edit Goblin' });
+  await expect(editor.getByLabel('Controlled by')).toHaveValue('');
+  await editor.getByLabel('Controlled by').selectOption({ label: 'Ana' });
+  await editor.getByRole('button', { name: 'Save changes' }).click();
+
+  // In the listed order: Ana first, then the goblin.
+  await encounter(dm).getByLabel('Roll initiative').uncheck();
+  await encounter(dm).getByRole('button', { name: 'Start fight' }).click();
+  const anaBar = ana.getByRole('region', { name: 'Your turn' });
+  await expect(anaBar).toContainText('Ana');
+
+  // The DM takes over the players' characters.
+  await dm.getByRole('tab', { name: 'Session' }).click();
+  const own = dm.getByLabel('Players control their own characters');
+  await expect(own).toBeChecked();
+  await own.uncheck();
+  await expect(anaBar).toHaveCount(0);
+  await expect(ana.getByTestId('control-note')).toContainText('DM is playing your character');
+  await expect(dm.getByRole('region', { name: 'Your turn' })).toContainText('Ana');
+  await own.check();
+  await expect(anaBar).toContainText('Ana');
+  await expect(ana.getByTestId('control-note')).toHaveCount(0);
+
+  // Ana's turn ends; the goblin is hers to play too.
+  await anaBar.getByRole('button', { name: 'End turn' }).click();
+  await expect(anaBar).toContainText('Goblin');
+});

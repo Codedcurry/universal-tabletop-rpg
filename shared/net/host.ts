@@ -106,6 +106,7 @@ export class HostSession {
       version: 0,
       dmTitle: checkTitle(options.dmTitle ?? 'DM'),
       rollMode: 'player',
+      playersControlOwn: true,
       players: [],
       system: null,
       map: null,
@@ -203,11 +204,27 @@ export class HostSession {
   // DM controls
 
   setDmTitle(title: string): void {
-    this.publish({ kind: 'settings', dmTitle: checkTitle(title), rollMode: this.state.rollMode });
+    this.publish({ ...this.settings(), dmTitle: checkTitle(title) });
   }
 
   setRollMode(rollMode: RollMode): void {
-    this.publish({ kind: 'settings', dmTitle: this.state.dmTitle, rollMode });
+    this.publish({ ...this.settings(), rollMode });
+  }
+
+  /** Whether players act for their own characters; off, the DM plays them (creatures handed over stay with their player). */
+  setPlayersControlOwn(on: boolean): void {
+    if (on === this.state.playersControlOwn) return;
+    this.publish({ ...this.settings(), playersControlOwn: on });
+    this.publishPlayers();
+    this.log({
+      kind: 'system',
+      text: on ? 'Players control their own characters again' : `${this.state.dmTitle} now controls the players' characters`,
+    });
+  }
+
+  private settings(): Extract<SessionUpdate, { kind: 'settings' }> {
+    const { dmTitle, rollMode, playersControlOwn } = this.state;
+    return { kind: 'settings', dmTitle, rollMode, playersControlOwn };
   }
 
   setSystem(system: GameSystem): void {
@@ -476,7 +493,7 @@ export class HostSession {
   }
 
   private controls(player: PlayerRecord): string[] {
-    const own = player.character ? [player.character.id] : [];
+    const own = player.character && this.state.playersControlOwn ? [player.character.id] : [];
     return [...own, ...player.granted.filter((id) => !own.includes(id))];
   }
 

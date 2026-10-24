@@ -73,6 +73,8 @@ export interface SessionSnapshot {
   readonly version: number;
   readonly dmTitle: string;
   readonly rollMode: RollMode;
+  /** Players act for their own characters (otherwise the DM plays everyone, apart from creatures handed over). */
+  readonly playersControlOwn: boolean;
   readonly players: readonly PublicPlayer[];
   readonly system: GameSystem | null;
   readonly map: MapData | null;
@@ -82,7 +84,7 @@ export interface SessionSnapshot {
 
 export type SessionUpdate =
   | { readonly kind: 'players'; readonly players: readonly PublicPlayer[] }
-  | { readonly kind: 'settings'; readonly dmTitle: string; readonly rollMode: RollMode }
+  | { readonly kind: 'settings'; readonly dmTitle: string; readonly rollMode: RollMode; readonly playersControlOwn: boolean }
   | { readonly kind: 'system'; readonly system: GameSystem | null }
   | { readonly kind: 'map'; readonly map: MapData | null }
   /** A live edit: just the changed tiles and walls. */

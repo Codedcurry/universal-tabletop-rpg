@@ -1,6 +1,6 @@
 import { type FormEvent, useMemo, useState } from 'react';
 import { type ActiveCondition, type CombatState, type Combatant, type CombatantPatch, type CombatantSetup, setupFromMonster } from '@shared/combat';
-import type { HostSession } from '@shared/net';
+import type { HostSession, PublicPlayer } from '@shared/net';
 import { type GameSystem, computeCreature } from '@shared/system';
 import { Roster } from './Roster';
 
@@ -161,7 +161,17 @@ export function EncounterPanel({ session, selectedId, onSelect, onPlace, onError
           id={selectedId}
           combatant={selected}
           system={system}
-          onSave={(name, patch) => {
+          players={players}
+          playersControlOwn={snapshot.playersControlOwn}
+          onSave={(name, patch, controller) => {
+            // Who plays it: hand it to that player, taking it from whoever had it.
+            const current = players.find(
+              (player) => player.controls.includes(selectedId) && (player.character?.id !== selectedId || !snapshot.playersControlOwn),
+            );
+            if (controller !== undefined && controller !== (current?.id ?? null)) {
+              if (current) session.revokeControl(current.id, selectedId);
+              if (controller) session.grantControl(controller, selectedId);
+            }
             if (name !== selected.sheet.name) {
               const renamed = session.renameCreature(selectedId, name);
               if (!renamed.ok) return report(renamed);
@@ -184,13 +194,16 @@ interface EditorProps {
   readonly id: string;
   readonly combatant: Combatant;
   readonly system: GameSystem;
-  onSave(name: string, patch: CombatantPatch): void;
+  readonly players: readonly PublicPlayer[];
+  readonly playersControlOwn: boolean;
+  /** `controller`: the player to hand the creature to (null: the DM), or undefined to leave it. */
+  onSave(name: string, patch: CombatantPatch, controller: string | null | undefined): void;
   onMove(): void;
   onRemove(): void;
 }
 
 /** Edits one creature. Only fields that changed are sent, so the log says exactly what changed. */
-function CreatureEditor({ combatant, system, onSave, onMove, onRemove }: EditorProps) {
+function CreatureEditor({ id, combatant, system, players, playersControlOwn, onSave, onMove, onRemove }: EditorProps) {
   const sheet = combatant.sheet;
   const statValue = (statId: string) => sheet.stats[statId] ?? system.stats.find((stat) => stat.id === statId)?.default ?? 0;
   const [name, setName] = useState(sheet.name);
@@ -202,6 +215,10 @@ function CreatureEditor({ combatant, system, onSave, onMove, onRemove }: EditorP
   const [xpValue, setXpValue] = useState(String(combatant.xpValue));
   const [conditions, setConditions] = useState<ActiveCondition[]>([...combatant.conditions]);
   const [abilities, setAbilities] = useState<string[]>([...sheet.abilities]);
+  // A player's own character is theirs while players control their own; anything else the DM can hand over.
+  const owner = players.find((player) => player.character?.id === id);
+  const handedTo = players.find((player) => player.controls.includes(id) && (player !== owner || !playersControlOwn))?.id ?? '';
+  const [controller, setController] = useState(handedTo);
   const maxHp = useMemo(() => computeCreature(system, sheet).maxHp, [system, sheet]);
 
   function save(event: FormEvent) {
@@ -220,7 +237,7 @@ function CreatureEditor({ combatant, system, onSave, onMove, onRemove }: EditorP
     if (Number(xpValue) !== combatant.xpValue) patch.xpValue = Number(xpValue);
     if (JSON.stringify(conditions) !== JSON.stringify(combatant.conditions)) patch.conditions = conditions;
     if (JSON.stringify(abilities) !== JSON.stringify(sheet.abilities)) patch.abilities = abilities;
-    onSave(name, patch);
+    onSave(name, patch, controller === handedTo ? undefined : controller || null);
   }
 
   const toggleCondition = (id: string, on: boolean) =>
@@ -269,6 +286,23 @@ function CreatureEditor({ combatant, system, onSave, onMove, onRemove }: EditorP
             <option key={entry} value={entry} />
           ))}
         </datalist>
+        {owner && playersControlOwn ? (
+          <p className="muted">
+            {owner.name}'s own character: {owner.name} plays it (see Session to change that).
+          </p>
+        ) : (
+          <label>
+            <span>Controlled by</span>
+            <select value={controller} onChange={(event) => setController(event.target.value)}>
+              <option value="">DM</option>
+              {players.map((player) => (
+                <option key={player.id} value={player.id}>
+                  {player.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <label className="check">
           <input type="checkbox" checked={isPc} onChange={(event) => setIsPc(event.target.checked)} />
           Player character (earns XP)

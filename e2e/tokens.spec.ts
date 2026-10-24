@@ -182,3 +182,29 @@ test('highlights match the action (move, attack, help), and the creature acting 
   await bar.getByRole('button', { name: 'End turn' }).click();
   await expect(token(ana, 'Ana')).toHaveAttribute('data-active', 'false');
 });
+
+test("every ability shows its range on the map: previewed on hover, and pickable even with nobody in reach", async ({ browser }) => {
+  const { dm, ana } = await fight(browser);
+  await untilAnasTurn(dm, ana);
+  const canvas = ana.getByTestId('world-canvas');
+  const bar = ana.getByRole('region', { name: 'Your turn' });
+  const reach = async () => Number((await canvas.getAttribute('data-reach')) ?? 0);
+  await expect(bar.getByRole('button', { name: 'Shoot' })).toContainText('range 6');
+  await expect(bar.getByRole('button', { name: 'Strike' })).toContainText('range 1');
+
+  await bar.getByRole('button', { name: 'Strike' }).hover();
+  await expect(canvas).toHaveAttribute('data-reach', /^[1-9]/);
+  const strikeReach = await reach();
+  await bar.getByRole('button', { name: 'Shoot' }).hover();
+  await expect.poll(reach).toBeGreaterThan(strikeReach);
+  await ana.mouse.move(0, 0);
+  await expect(canvas).not.toHaveAttribute('data-reach');
+
+  // The goblins stand far off: Strike reaches nobody, but can still be picked to see its range.
+  await bar.getByRole('button', { name: 'Strike' }).click();
+  await expect(canvas).toHaveAttribute('data-reach', String(strikeReach));
+  await expect(bar.getByText(/nobody is in range/i)).toBeVisible();
+  await bar.getByRole('button', { name: 'Shoot' }).click();
+  await expect(bar.getByText(/nobody is in range/i)).toHaveCount(0);
+  await expect(canvas).toHaveAttribute('data-highlight', 'harm');
+});

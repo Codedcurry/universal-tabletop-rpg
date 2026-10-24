@@ -17,7 +17,9 @@ import type { CameraCommand, CameraView } from '@shared/camera';
 import type { StylePack } from '../style/stylePack';
 import type { CombatEvent, CombatState } from '@shared/combat';
 import type { GameSystem } from '@shared/system';
+import { type GraphicsQuality, effectsFor } from '@shared/graphics';
 import { CameraRig } from './CameraRig';
+import { SceneEffects } from './SceneEffects';
 import { TokenLayer } from './TokenLayer';
 
 // Draws a map in 3D and reports what the pointer is over. No game logic:
@@ -63,6 +65,7 @@ export class WorldView {
   private readonly scene: Scene;
   private readonly rig: CameraRig;
   private readonly tokens: TokenLayer;
+  private readonly effects: SceneEffects;
   private readonly labelLayer: HTMLDivElement;
   private onTokenClick: (id: string) => void = () => undefined;
   private readonly materials = new Map<string, StandardMaterial>();
@@ -72,6 +75,7 @@ export class WorldView {
   /** Top of the tallest tile, where the pointer's line of sight starts checking. */
   private ceiling = 0;
   private highlightMesh: Mesh | null = null;
+  private reachMesh: Mesh | null = null;
   private ghostMesh: Mesh | null = null;
   private grid: Grid | null = null;
   private heights = new Map<string, number>();
@@ -106,19 +110,24 @@ export class WorldView {
     this.rig.setGroundLevel(style.levelHeight); // the top of a level-0 tile
     this.rig.onViewChange((view) => {
       this.tokens.setTopDown(view.mode === 'topDown');
+      this.effects.setTopDown(view.mode === 'topDown');
       this.markActive();
     });
     // Name tags, HP bars, and floating numbers are HTML laid over the canvas.
     this.labelLayer = document.createElement('div');
     this.labelLayer.className = 'token-overlay';
     canvas.parentElement?.append(this.labelLayer);
-    this.tokens = new TokenLayer(this.scene, style, this.labelLayer, (id) => this.onTokenClick(id));
-
     const sky = new HemisphericLight('sky', new Vector3(0.2, 1, -0.3), this.scene);
     sky.intensity = 0.75;
     sky.groundColor = new Color3(0.35, 0.33, 0.4);
-    const sun = new DirectionalLight('sun', new Vector3(-0.5, -1, 0.6), this.scene);
-    sun.intensity = 0.55;
+    // A warm, low sun: it casts the shadows (on medium and high graphics).
+    const sunDirection = new Vector3(-0.5, -1, 0.6).normalize();
+    const sun = new DirectionalLight('sun', sunDirection, this.scene);
+    sun.position = sunDirection.scale(-150);
+    sun.intensity = 0.6;
+    sun.diffuse = new Color3(1, 0.95, 0.86);
+    this.effects = new SceneEffects(this.scene, this.engine, this.rig.camera, sun);
+    this.tokens = new TokenLayer(this.scene, style, this.labelLayer, (id) => this.onTokenClick(id), this.effects);
 
     canvas.addEventListener('contextmenu', preventDefault);
     // The wheel zooms the map, never the page; middle-click mustn't start the browser's autoscroll.
@@ -174,9 +183,11 @@ export class WorldView {
       }
       if (this.rig.update(dt)) this.activeUntil = Math.max(this.activeUntil, now + GLIDE_MS);
       if (!this.dirty && now > this.activeUntil) return;
+      this.effects.setFocus(this.rig.camera.radius); // depth of field stays sharp where the camera looks
       this.scene.render();
       // After drawing, so name tags follow the camera exactly as just drawn.
-      const size = { width: this.engine.getRenderWidth(), height: this.engine.getRenderHeight() };
+      // In CSS pixels, like the name tags: the canvas may draw more pixels than that on high-DPI screens.
+      const size = { width: this.canvas.clientWidth, height: this.canvas.clientHeight };
       if (this.tokens.update(now, this.rig.heading, size)) this.activeUntil = Math.max(this.activeUntil, now + GLIDE_MS);
       const view = this.cameraState();
       if (view !== this.lastView) this.activeUntil = Math.max(this.activeUntil, now + GLIDE_MS);
@@ -184,6 +195,13 @@ export class WorldView {
       // Shaders compile in the background; keep drawing until everything is ready.
       this.dirty = !this.scene.isReady();
     });
+  }
+
+  /** Sets how much 2.5D polish to draw (bloom, depth of field, shadows, glows). */
+  setGraphics(quality: GraphicsQuality): void {
+    this.effects.apply(effectsFor(quality));
+    this.engine.resize();
+    this.invalidate();
   }
 
   /** Asks for a redraw on the next frame. */
@@ -277,6 +295,7 @@ export class WorldView {
     for (const mesh of this.meshes) mesh.dispose();
     this.meshes = [];
     this.setHighlight([]);
+    this.setReach([]);
     this.setGhosts([]);
     if (!map) {
       this.grid = null;
@@ -319,8 +338,9 @@ export class WorldView {
         this.matrices(cells, (cell) => ({ base: 0, top: this.tileTop(cell) })),
         16,
       );
-    mesh.thinInstanceRefreshBoundingInfo(false);
+      mesh.thinInstanceRefreshBoundingInfo(false);
       mesh.isPickable = false;
+      this.effects.addShadowCaster(mesh);
       this.meshes.push(mesh);
     }
 
@@ -335,11 +355,16 @@ export class WorldView {
         this.matrices(blocked, (cell) => ({ base: this.tileTop(cell), top: this.tileTop(cell) + levelHeight * 1.5 })),
         16,
       );
-    mesh.thinInstanceRefreshBoundingInfo(false);
+      mesh.thinInstanceRefreshBoundingInfo(false);
+      this.effects.addShadowCaster(mesh);
       this.meshes.push(mesh);
     }
 
-    if (map.walls.length > 0) this.meshes.push(this.wallMesh(grid, map));
+    if (map.walls.length > 0) {
+      const walls = this.wallMesh(grid, map);
+      this.effects.addShadowCaster(walls);
+      this.meshes.push(walls);
+    }
 
     this.map = map;
     // Edits never move the camera. It frames the map only when one first
@@ -369,6 +394,13 @@ export class WorldView {
     this.highlightMesh = this.overlay('highlight', cells, strong ? 0.85 : 0.5, strong ? 1 : 0.75, tint, strong);
   }
 
+  /** An ability's range: a faint tint under the targets (thinner than the highlight, so the two never fight). */
+  setReach(cells: readonly Cell[], kind: 'harm' | 'help' = 'harm'): void {
+    this.reachMesh?.dispose();
+    // Red blended thinly over green turns brown: red needs more cover than blue to read as red.
+    this.reachMesh = this.overlay('reach', cells, kind === 'harm' ? 0.62 : 0.5, 0.85, this.style.actionColors[kind], true, 0.15);
+  }
+
   /** Faint outlines of empty cells, e.g. where "Add tiles" can build. */
   setGhosts(cells: readonly Cell[]): void {
     this.ghostMesh?.dispose();
@@ -376,7 +408,15 @@ export class WorldView {
   }
 
   /** A thin translucent layer over cells: on top of tiles, or on the ground outside the world. */
-  private overlay(name: string, cells: readonly Cell[], alpha: number, glow: number, tint = this.style.highlightColor, unlit = false): Mesh | null {
+  private overlay(
+    name: string,
+    cells: readonly Cell[],
+    alpha: number,
+    glow: number,
+    tint = this.style.highlightColor,
+    unlit = false,
+    thicknessLevels = 0.3,
+  ): Mesh | null {
     this.invalidate();
     if (cells.length === 0 || !this.grid) return null;
     const mesh = this.tileMesh(name, this.grid, this.style.tileFill);
@@ -386,7 +426,7 @@ export class WorldView {
     material.emissiveColor = color(tint).scale(glow);
     mesh.material = material;
     mesh.isPickable = false;
-    const thickness = this.style.levelHeight * 0.3;
+    const thickness = this.style.levelHeight * thicknessLevels;
     mesh.thinInstanceSetBuffer(
       'matrix',
       this.matrices(cells, (cell) => {
@@ -411,6 +451,7 @@ export class WorldView {
     }
     this.resizeObserver.disconnect();
     this.tokens.dispose();
+    this.effects.dispose();
     this.labelLayer.remove();
     this.rig.dispose();
     this.engine.dispose();

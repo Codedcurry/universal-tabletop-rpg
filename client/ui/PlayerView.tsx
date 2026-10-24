@@ -35,6 +35,8 @@ interface Props {
 export function PlayerView({ game, code, error, focus, combatEvents }: Props) {
   const { session } = game;
   const state = session.state;
+  // This player's own character, if they brought one.
+  const mine = state?.players.find((player) => player.id === session.playerId)?.character?.id;
   const [localError, setLocalError] = useState<string | null>(null);
 
   function roll(notation: string, faces: number[] | null) {
@@ -67,6 +69,12 @@ export function PlayerView({ game, code, error, focus, combatEvents }: Props) {
       {state && (
         <section className="card">
           <h2>Map</h2>
+          {/* Says plainly when the DM has taken over this player's character. */}
+          {!state.playersControlOwn && mine && state.combat?.combatants[mine] && !session.canControl(mine) && (
+            <p className="control-note" data-testid="control-note" role="status">
+              {state.dmTitle} is playing your character for now.
+            </p>
+          )}
           <MapViewer
             map={state.map}
             focus={focus}

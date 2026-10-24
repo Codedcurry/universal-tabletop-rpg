@@ -1,10 +1,12 @@
 import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 'react';
 import type { CameraCommand, CameraView } from '@shared/camera';
 import type { CombatEvent, CombatState } from '@shared/combat';
+import { GRAPHICS_QUALITIES, type GraphicsQuality } from '@shared/graphics';
 import type { GameSystem } from '@shared/system';
 import type { Cell } from '@shared/grid';
 import type { MapData, WorldMap } from '@shared/map';
 import { type HighlightKind, type TilePointer, WorldView } from '../render/WorldView';
+import { loadGraphicsQuality, saveGraphicsQuality } from '../style/graphicsSetting';
 import { placeholderStyle } from '../style/stylePack';
 
 interface Props {
@@ -13,6 +15,9 @@ interface Props {
   readonly highlight?: readonly Cell[];
   /** Decides the highlight color (default: the editing brush). */
   readonly highlightKind?: HighlightKind;
+  /** An ability's range, tinted faintly under the highlight. */
+  readonly reach?: readonly Cell[];
+  readonly reachKind?: 'harm' | 'help';
   readonly ghosts?: readonly Cell[];
   /** Changing this re-frames the camera on the whole map (e.g. after a new map). */
   readonly frameKey?: number;
@@ -33,6 +38,8 @@ interface Props {
   onPointer(pointer: TilePointer): void;
 }
 
+const QUALITY_LABELS: Record<GraphicsQuality, string> = { low: 'Low', medium: 'Medium', high: 'High' };
+
 const NONE: readonly Cell[] = [];
 const NO_TARGETS: readonly string[] = [];
 
@@ -52,7 +59,7 @@ function headingLabel(view: CameraView): string {
 export function WorldCanvas(props: Props) {
   const { map, editing, highlight = NONE, highlightKind = 'brush', ghosts = NONE, frameKey = 0, focus = null, onFocusEveryone, overlay, onPointer } =
     props;
-  const { combat = null, system = null, combatEvents = null, targets = NO_TARGETS, onTokenClick } = props;
+  const { combat = null, system = null, combatEvents = null, targets = NO_TARGETS, onTokenClick, reach = NONE, reachKind = 'harm' } = props;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const viewRef = useRef<WorldView | null>(null);
   const [camera, setCamera] = useState<CameraView>({ mode: '2.5d', free: false, cardinal: 'north' });
@@ -78,10 +85,15 @@ export function WorldCanvas(props: Props) {
     };
   }, []);
 
+  // How much 2.5D polish to draw: this viewer's choice, kept on this device.
+  const [quality, setQuality] = useState<GraphicsQuality>(loadGraphicsQuality);
+  useEffect(() => viewRef.current?.setGraphics(quality), [quality]);
+
   useEffect(() => viewRef.current?.setMap(map), [map]);
   useEffect(() => viewRef.current?.setEditing(editing), [editing]);
   // After setMap, which clears overlays when the map changes.
   useEffect(() => viewRef.current?.setHighlight(highlight, highlightKind), [highlight, highlightKind, map]);
+  useEffect(() => viewRef.current?.setReach(reach, reachKind), [reach, reachKind, map]);
   useEffect(() => viewRef.current?.setGhosts(ghosts), [ghosts, map]);
   useEffect(() => {
     if (frameKey > 0) viewRef.current?.frameMap();
@@ -121,6 +133,7 @@ export function WorldCanvas(props: Props) {
         className="world-canvas"
         data-testid="world-canvas"
         data-highlight={highlight.length > 0 ? highlightKind : undefined}
+        data-reach={reach.length > 0 ? reach.length : undefined}
       />
       {overlay}
       <span className="compass" data-testid="camera-heading">
@@ -178,6 +191,25 @@ export function WorldCanvas(props: Props) {
             <span className="short"> all</span>
           </button>
         )}
+        <label className="graphics-setting" title="Bloom, depth of field, shadows, and glows. Lower is smoother on phones.">
+          <span className="long">Graphics</span>
+          <span className="short" aria-hidden="true">✨</span>
+          <select
+            aria-label="Graphics quality"
+            value={quality}
+            onChange={(event) => {
+              const next = event.target.value as GraphicsQuality;
+              setQuality(next);
+              saveGraphicsQuality(next);
+            }}
+          >
+            {GRAPHICS_QUALITIES.map((entry) => (
+              <option key={entry} value={entry}>
+                {QUALITY_LABELS[entry]}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
     </div>
   );

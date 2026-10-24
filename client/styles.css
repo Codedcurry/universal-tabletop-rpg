@@ -435,6 +435,23 @@ button[aria-expanded='true'] {
   min-width: 40px;
   font-size: 20px;
 }
+/* The graphics setting sits at the far end of the camera bar. */
+.graphics-setting {
+  margin: 0 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px 0 10px;
+  border-radius: 8px;
+  background: rgba(31, 27, 43, 0.85);
+  font-size: 14px;
+}
+.graphics-setting select {
+  min-height: 40px;
+  width: auto;
+  background: transparent;
+  border: none;
+}
 .camera-controls button[aria-pressed='true'] {
   background: var(--accent);
   border-color: var(--accent);
@@ -668,6 +685,16 @@ button[aria-expanded='true'] {
 .hud-ability {
   min-height: 48px;
   flex: 1 1 110px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.15;
+}
+.hud-range {
+  font-size: 11px;
+  font-weight: 500;
+  opacity: 0.75;
 }
 /* Abilities are edged in their action color: red to hurt, blue to help; filled while picking a target. */
 .hud-ability.harm {
@@ -1126,4 +1153,14 @@ button.danger {
   border-color: var(--danger);
   color: #1a0505;
   font-weight: 600;
+}
+
+/* Tells a player the DM has taken over their character. */
+.control-note {
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-size: 14px;
 }

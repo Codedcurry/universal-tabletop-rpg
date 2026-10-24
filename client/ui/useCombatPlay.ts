@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { type CombatAction, type CombatContext, type CombatState, moveOptions, targetOptions } from '@shared/combat';
+import { type CombatAction, type CombatContext, type CombatState, abilityReach, moveOptions, targetOptions } from '@shared/combat';
 import { type Cell, cellKey } from '@shared/grid';
 import { type MapData, createWorldMap } from '@shared/map';
 import { type GameSystem, abilityIntent } from '@shared/system';
@@ -30,6 +30,12 @@ export interface CombatPlay {
   /** What the highlight means: where to move, or who the chosen ability hurts or helps. */
   readonly highlightKind: Exclude<HighlightKind, 'brush'>;
   readonly targets: readonly string[];
+  /** Every tile the picked (or previewed) ability reaches, shown faintly under the targets. */
+  readonly reach: readonly Cell[];
+  /** Whether that ability hurts or helps, for the reach color. */
+  readonly reachKind: 'harm' | 'help';
+  /** Shows an ability's range without picking it (hovering its button), or stops with null. */
+  previewAbility(abilityId: string | null): void;
   selectAbility(abilityId: string): void;
   endTurn(): void;
   onPointer(pointer: TilePointer): void;
@@ -44,9 +50,13 @@ export function useCombatPlay({ combat, system, map, canControl, act }: Options)
   const activeId = combat?.status === 'active' ? (combat.order[combat.turnIndex] ?? null) : null;
   const actorId = activeId && canControl(activeId) ? activeId : null;
   const [ability, setAbility] = useState<string | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
 
   // A new turn, or the action being spent, drops any half-chosen ability.
-  useEffect(() => setAbility(null), [actorId, combat?.round, combat?.actionUsed]);
+  useEffect(() => {
+    setAbility(null);
+    setPreview(null); // the bar may have gone from under the pointer
+  }, [actorId, combat?.round, combat?.actionUsed]);
 
   const moves = useMemo(
     () => (context && combat && actorId && !ability ? moveOptions(context, combat, actorId) : new Map()),
@@ -56,11 +66,20 @@ export function useCombatPlay({ combat, system, map, canControl, act }: Options)
     () => (context && combat && actorId && ability ? targetOptions(context, combat, actorId, ability) : []),
     [context, combat, actorId, ability],
   );
+  const shown = ability ?? preview;
+  const reach = useMemo(
+    () => (context && combat && actorId && shown ? abilityReach(context, combat, actorId, shown) : []),
+    [context, combat, actorId, shown],
+  );
+  const shownDefinition = shown ? system?.abilities.find((entry) => entry.id === shown) : undefined;
+  const reachKind = shownDefinition ? abilityIntent(shownDefinition) : 'harm';
+
   const highlight = useMemo<Cell[]>(() => {
     if (!combat) return [];
+    if (preview && !ability) return []; // just the range while previewing
     if (ability) return targets.map((id) => combat.combatants[id]?.position).filter((cell): cell is Cell => !!cell);
     return [...moves.values()].map((reach) => reach.cell);
-  }, [combat, ability, targets, moves]);
+  }, [combat, ability, preview, targets, moves]);
 
   const chosen = ability ? system?.abilities.find((entry) => entry.id === ability) : undefined;
   const highlightKind = chosen ? abilityIntent(chosen) : 'move';
@@ -93,6 +112,9 @@ export function useCombatPlay({ combat, system, map, canControl, act }: Options)
     highlight,
     highlightKind,
     targets,
+    reach,
+    reachKind,
+    previewAbility: setPreview,
     selectAbility(abilityId) {
       if (!actorId || !system) return;
       const definition = system.abilities.find((entry) => entry.id === abilityId);

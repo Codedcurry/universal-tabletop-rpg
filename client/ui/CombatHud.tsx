@@ -11,8 +11,8 @@ import type { CombatPlay } from './useCombatPlay';
 
 const HINTS = {
   move: { color: 'Yellow', text: ' tiles: where you can move. Tap one to go there.' },
-  harm: { color: 'Red', text: ': who you can hit. Tap one, or its name tag.' },
-  help: { color: 'Blue', text: ': who you can help. Tap one, or its name tag.' },
+  harm: { color: 'Red', text: ': who you can hit (shaded: the range). Tap one, or its name tag.' },
+  help: { color: 'Blue', text: ': who you can help (shaded: the range). Tap one, or its name tag.' },
 } as const;
 
 /** The style pack's action colors, for the hint swatches and ability buttons. */
@@ -64,6 +64,9 @@ export function CombatHud({ combat, system, play }: { combat: CombatState; syste
   const next = thresholds[level];
   const abilities = system.abilities.filter((ability) => actor.sheet.abilities.includes(ability.id));
   const moves = combat.movementLeft;
+  const chosen = play.ability ? abilities.find((ability) => ability.id === play.ability) : undefined;
+  // A condition (e.g. Stunned) can stop the creature acting at all.
+  const stopped = actor.conditions.some((active) => system.conditions.find((condition) => condition.id === active.id)?.preventsActions);
 
   return (
     <section className="combat-hud" aria-label="Your turn" style={actionColors}>
@@ -87,7 +90,8 @@ export function CombatHud({ combat, system, play }: { combat: CombatState; syste
       </div>
       <div className="hud-abilities">
         {abilities.map((ability) => {
-          const usable = !combat.actionUsed && targetOptions(context, combat, actorId, ability.id).length > 0;
+          // Pickable whenever the action is free, even with nobody in reach: picking shows the range.
+          const usable = !combat.actionUsed && !stopped && (ability.target !== 'self' || targetOptions(context, combat, actorId, ability.id).length > 0);
           return (
             <button
               key={ability.id}
@@ -97,8 +101,14 @@ export function CombatHud({ combat, system, play }: { combat: CombatState; syste
               disabled={!usable}
               title={ability.description ?? `${ability.name} (range ${ability.range})`}
               onClick={() => play.selectAbility(ability.id)}
+              // Hovering or focusing an ability previews its range on the map.
+              onPointerEnter={() => play.previewAbility(ability.id)}
+              onPointerLeave={() => play.previewAbility(null)}
+              onFocus={() => play.previewAbility(ability.id)}
+              onBlur={() => play.previewAbility(null)}
             >
               {ability.name}
+              <small className="hud-range">{ability.target === 'self' ? 'self' : `range ${ability.range}`}</small>
             </button>
           );
         })}
@@ -106,7 +116,14 @@ export function CombatHud({ combat, system, play }: { combat: CombatState; syste
           End turn
         </button>
       </div>
-      {(play.ability || (moves > 0 && play.highlight.length > 0)) && (
+      {chosen && play.targets.length === 0 ? (
+        <p className={`hud-hint ${play.reachKind}`}>
+          <span className="swatch" aria-hidden="true" />
+          <span>
+            <strong>{HINTS[play.reachKind].color} shading</strong>: {chosen.name}'s range ({chosen.range === 1 ? '1 tile' : `${chosen.range} tiles`}). Nobody is in range: move closer, or pick another.
+          </span>
+        </p>
+      ) : (play.ability || (moves > 0 && play.highlight.length > 0)) && (
         <p className={`hud-hint ${play.highlightKind}`}>
           <span className="swatch" aria-hidden="true" />
           <span>
