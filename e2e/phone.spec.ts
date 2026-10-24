@@ -41,7 +41,7 @@ test('home, DM, and player screens fit a phone', async ({ browser }) => {
   await dm.getByRole('button', { name: 'Start demo fight' }).click();
   await expect(ana.getByTestId('turn-banner')).toContainText('Round 1');
   await ana.getByLabel('Dice to roll').fill('4d6kh3 + 2 coins');
-  await ana.getByRole('button', { name: 'Roll' }).click();
+  await ana.getByRole('button', { name: 'Roll', exact: true }).click();
   await expect(ana.locator('[data-kind="roll"]')).toHaveCount(1);
 
   await expectNoSidewaysScroll(dm);

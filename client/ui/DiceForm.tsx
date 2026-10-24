@@ -1,8 +1,38 @@
 import { type FormEvent, useId, useState } from 'react';
-import { DiceNotationError, type DiceExpression, type RollSlot, parseDice, rollSlots } from '@shared/dice';
+import {
+  DiceNotationError,
+  type DiceExpression,
+  type RollSlot,
+  type RollSpeed,
+  type Tray,
+  type TrayDie,
+  addToTray,
+  parseDice,
+  rollSlots,
+  trayNotation,
+} from '@shared/dice';
+import { setDiceSpeed, useDiceSpeed } from './diceSpeed';
 
-// Temporary typed-dice form. Step 7 replaces this with dice buttons, a tray,
-// and animated dice; typed notation will stay as an "advanced" option.
+// The dice panel: tap dice into a tray (or type notation for anything
+// fancier), roll, re-roll, and choose how long the animation plays.
+
+const QUICK_DICE: { die: TrayDie; label: string }[] = [
+  { die: 'coin', label: 'Coin' },
+  { die: 4, label: 'd4' },
+  { die: 6, label: 'd6' },
+  { die: 8, label: 'd8' },
+  { die: 10, label: 'd10' },
+  { die: 12, label: 'd12' },
+  { die: 20, label: 'd20' },
+  { die: 100, label: 'd100' },
+];
+
+const SPEEDS: { value: RollSpeed; label: string }[] = [
+  { value: 'fast', label: 'Fast' },
+  { value: 'normal', label: 'Normal' },
+  { value: 'dramatic', label: 'Dramatic' },
+  { value: 'off', label: 'Off' },
+];
 
 /** Typing that many results by hand is a chore, not a feature. */
 const MAX_PHYSICAL_SLOTS = 20;
@@ -50,7 +80,23 @@ export function DiceForm({ physicalDice, canHideRolls, onRoll }: Props) {
   const [notation, setNotation] = useState('');
   const [hidden, setHidden] = useState(false);
   const [entries, setEntries] = useState<string[]>([]);
+  const [tray, setTray] = useState<Tray>({});
+  const [lastNotation, setLastNotation] = useState<string | null>(null);
+  const speed = useDiceSpeed();
   const helpId = useId();
+
+  function addDie(die: TrayDie) {
+    // Typing by hand replaces the tray; tapping a die starts it again from what's in it.
+    const next = addToTray(tray, die);
+    setTray(next);
+    setNotation(trayNotation(next));
+  }
+
+  function clear() {
+    setTray({});
+    setNotation('');
+    setEntries([]);
+  }
 
   const parsed = parse(notation);
   const slots = physicalDice && parsed.expression ? rollSlots(parsed.expression) : [];
@@ -71,11 +117,23 @@ export function DiceForm({ physicalDice, canHideRolls, onRoll }: Props) {
     event.preventDefault();
     if (!ready) return;
     onRoll(notation, hidden, physicalDice ? (faces as number[]) : null);
-    if (physicalDice) setEntries([]);
+    setLastNotation(notation);
+    clear();
+  }
+
+  function reroll() {
+    if (lastNotation && !physicalDice) onRoll(lastNotation, hidden, null);
   }
 
   return (
     <form onSubmit={submit}>
+      <div className="quick-dice" role="group" aria-label="Add dice to the tray">
+        {QUICK_DICE.map(({ die, label }) => (
+          <button key={label} type="button" aria-label={`Add ${label === 'Coin' ? 'coin' : label}`} onClick={() => addDie(die)}>
+            {label}
+          </button>
+        ))}
+      </div>
       <p className="hint" id={helpId}>
         <b>d20</b> = one 20-sided die · <b>2d6+3</b> = two 6-sided dice, plus 3 · <b>3 coins</b> = flip three coins
       </p>
@@ -91,7 +149,10 @@ export function DiceForm({ physicalDice, canHideRolls, onRoll }: Props) {
           <span>Dice to roll</span>
           <input
             value={notation}
-            onChange={(event) => setNotation(event.target.value)}
+            onChange={(event) => {
+              setNotation(event.target.value);
+              setTray({});
+            }}
             placeholder="e.g. d20 or 2d6+3"
             aria-describedby={helpId}
             autoCapitalize="off"
@@ -108,6 +169,24 @@ export function DiceForm({ physicalDice, canHideRolls, onRoll }: Props) {
         <button type="submit" className="primary" disabled={!ready}>
           Roll
         </button>
+      </div>
+      <div className="row dice-extras">
+        <button type="button" onClick={clear} disabled={notation === ''}>
+          Clear
+        </button>
+        <button type="button" onClick={reroll} disabled={!lastNotation || physicalDice} title={lastNotation ?? undefined}>
+          Re-roll
+        </button>
+        <label>
+          <span>Dice animation</span>
+          <select value={speed} onChange={(event) => setDiceSpeed(event.target.value as RollSpeed)}>
+            {SPEEDS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
 
       {parsed.error && <p className="field-error">{parsed.error}</p>}

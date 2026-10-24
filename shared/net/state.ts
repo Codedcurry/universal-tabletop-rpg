@@ -8,6 +8,7 @@ export function canSee(entry: LogEntry, viewer: ParticipantId): boolean {
   if (viewer === 'dm') return true;
   switch (entry.kind) {
     case 'system':
+    case 'game':
       return true;
     case 'chat':
       return entry.to === null || entry.from === viewer || entry.to === viewer;

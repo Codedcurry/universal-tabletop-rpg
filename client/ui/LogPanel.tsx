@@ -1,10 +1,9 @@
 import { type FormEvent, useId, useState } from 'react';
-import type { RollResult } from '@shared/dice';
-import type { LogEntry, RollSource, SessionSnapshot } from '@shared/net';
+import type { SessionSnapshot } from '@shared/net';
 import { DiceForm } from './DiceForm';
+import { LogList } from './LogList';
 
-// Chat and roll log. Step 7 turns this into the tabbed log panel with
-// animated dice; for now it shows everything in one list.
+// The log (in tabs; see LogList), then chat, then the dice panel.
 
 interface Props {
   readonly state: SessionSnapshot;
@@ -20,24 +19,6 @@ interface Props {
   /** Players type in what their real dice show. */
   readonly physicalDice: boolean;
   readonly error: string | null;
-}
-
-const MODE_LABELS: Record<RollSource, string> = {
-  player: 'rolled on device',
-  dmVerified: 'rolled by the DM',
-  physical: 'physical dice',
-  dm: 'DM roll',
-};
-
-function describeRoll(result: RollResult): string {
-  return result.terms
-    .map((term, index) => {
-      const sign = term.sign < 0 ? '- ' : index === 0 ? '' : '+ ';
-      if (term.kind === 'constant') return `${sign}${term.value}`;
-      if (term.kind === 'coin') return `${sign}[${term.flips.map((flip) => (flip === 'heads' ? 'H' : 'T')).join(' ')}]`;
-      return `${sign}[${term.dice.map((die) => (die.kept ? `${die.value}` : `(${die.value})`)).join(' ')}]`;
-    })
-    .join(' ');
 }
 
 export function LogPanel(props: Props) {
@@ -57,40 +38,9 @@ export function LogPanel(props: Props) {
     setMessage('');
   }
 
-  function render(entry: LogEntry) {
-    switch (entry.kind) {
-      case 'system':
-        return <em>{entry.text}</em>;
-      case 'chat':
-        return (
-          <>
-            <strong>{nameOf(entry.from)}</strong>
-            {entry.to && <span className="whisper"> → {nameOf(entry.to)} (whisper)</span>}: {entry.text}
-          </>
-        );
-      case 'roll':
-        return (
-          <>
-            <strong>{nameOf(entry.from)}</strong> rolled {entry.result.notation} ={' '}
-            <span className="roll-total">{entry.result.total}</span>{' '}
-            <span className="muted">
-              {describeRoll(entry.result)} · {MODE_LABELS[entry.mode]}
-              {entry.hidden ? ' · hidden' : ''}
-            </span>
-          </>
-        );
-    }
-  }
-
   return (
     <div className="log-panel">
-      <ol className="log" data-testid="log">
-        {state.log.map((entry) => (
-          <li key={entry.seq} data-kind={entry.kind}>
-            {render(entry)}
-          </li>
-        ))}
-      </ol>
+      <LogList log={state.log} nameOf={nameOf} />
 
       {error && (
         <p className="error" role="alert">

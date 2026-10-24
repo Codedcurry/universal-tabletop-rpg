@@ -19,6 +19,8 @@ export interface CombatantSetup {
   readonly xpValue?: number;
   /** Starting HP, e.g. when resuming a fight. Defaults to max HP. */
   readonly hp?: number;
+  /** Starting facing; defaults to toward the nearest enemy. */
+  readonly facing?: number;
 }
 
 export interface ActiveCondition {
@@ -36,11 +38,14 @@ export interface Combatant {
   /** 0 means downed: skipped in turn order until healed. */
   readonly hp: number;
   readonly conditions: readonly ActiveCondition[];
+  /** Compass heading the creature faces (0 = north, PI/2 = east): picks its sprite direction. */
+  readonly facing: number;
 }
 
 /** The whole fight. Plain data, so the DM can sync it to players and save it. */
 export interface CombatState {
-  readonly status: 'active' | 'ended';
+  /** setup: the DM is placing creatures; active: the fight is on; ended: one side is left standing. */
+  readonly status: 'setup' | 'active' | 'ended';
   readonly winner: string | null;
   readonly round: number;
   /** Combatant ids in initiative order. */
@@ -50,6 +55,8 @@ export interface CombatState {
   readonly movementLeft: number;
   readonly actionUsed: boolean;
   readonly combatants: Readonly<Record<string, Combatant>>;
+  /** Initiative totals, so creatures added mid-fight slot into the order. Empty before the fight. */
+  readonly initiative: Readonly<Record<string, number>>;
 }
 
 export type CombatAction =
@@ -94,7 +101,27 @@ export type CombatEvent =
   | { readonly type: 'conditionExpired'; readonly targetId: string; readonly conditionId: string }
   | { readonly type: 'combatEnded'; readonly winner: string }
   | { readonly type: 'xpGained'; readonly combatantId: string; readonly amount: number; readonly xp: number }
-  | { readonly type: 'levelUp'; readonly combatantId: string; readonly level: number };
+  | { readonly type: 'levelUp'; readonly combatantId: string; readonly level: number }
+  // The DM's changes, recorded in the Game log.
+  | { readonly type: 'combatantAdded'; readonly combatantId: string }
+  | { readonly type: 'combatantRemoved'; readonly combatantId: string; readonly name: string }
+  | { readonly type: 'combatantPlaced'; readonly combatantId: string; readonly to: Cell }
+  | { readonly type: 'combatantRenamed'; readonly combatantId: string; readonly from: string; readonly to: string }
+  /** `changes` are readable, e.g. "HP 8 → 3". */
+  | { readonly type: 'combatantEdited'; readonly combatantId: string; readonly changes: readonly string[] }
+  | { readonly type: 'turnOrderChanged'; readonly order: readonly string[] };
+
+/** What the DM can change about a creature at any moment. */
+export interface CombatantPatch {
+  readonly stats?: Readonly<Record<string, number>>;
+  readonly hp?: number;
+  readonly xp?: number;
+  readonly side?: string;
+  readonly isPlayerCharacter?: boolean;
+  readonly xpValue?: number;
+  readonly abilities?: readonly string[];
+  readonly conditions?: readonly ActiveCondition[];
+}
 
 export type ActionResult =
   | { readonly ok: true; readonly state: CombatState; readonly events: readonly CombatEvent[] }

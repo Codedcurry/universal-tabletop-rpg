@@ -23,6 +23,10 @@ export interface StylePack {
   readonly unknownTerrain: TerrainLook;
   readonly wallColor: string;
   readonly highlightColor: string;
+  /** Tiles and creatures you can act on: where you can move, who you can hurt, who you can help. */
+  readonly actionColors: { readonly move: string; readonly harm: string; readonly help: string };
+  /** The ring under the creature whose turn it is (kept apart from the move color so it stands out). */
+  readonly activeColor: string;
   readonly blockedColor: string;
 }
 
@@ -48,5 +52,7 @@ export const placeholderStyle: StylePack = {
   unknownTerrain: { color: '#c04fc0' },
   wallColor: '#d9cdb4',
   highlightColor: '#e0b44c',
+  actionColors: { move: '#e0b44c', harm: '#e8432f', help: '#3fa9f5' },
+  activeColor: '#ffffff',
   blockedColor: '#3a3440',
 };

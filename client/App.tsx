@@ -1,4 +1,5 @@
 import { useEffect, useReducer, useState } from 'react';
+import type { CombatEvent } from '@shared/combat';
 import type { Cell } from '@shared/grid';
 import { normalizeRoomCode } from '@shared/net';
 import { demoCharacter } from './demo';
@@ -22,13 +23,17 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [focus, setFocus] = useState<{ cell: Cell; key: number } | null>(null);
+  // The latest combat action, which the map acts out; `key` makes each one play once.
+  const [combatEvents, setCombatEvents] = useState<{ events: readonly CombatEvent[]; key: number } | null>(null);
+  const onCombatEvents = (events: readonly CombatEvent[]) =>
+    setCombatEvents((previous) => ({ events, key: (previous?.key ?? 0) + 1 }));
   // Sessions are plain objects that report changes; re-render when they do.
   const [, rerender] = useReducer((count: number) => count + 1, 0);
 
   function host(name: string) {
     saveName(name);
     setBusy(true);
-    hostGame({ onChange: rerender }).then(
+    hostGame({ onChange: rerender, onCombatEvents }).then(
       (game) => {
         setBusy(false);
         setView({ kind: 'host', game });
@@ -52,6 +57,7 @@ export function App() {
       onChange: rerender,
       onRequestFailed: (reason) => setError(reason),
       onFocus: (cell) => setFocus((previous) => ({ cell, key: (previous?.key ?? 0) + 1 })),
+      onCombatEvents,
     });
     setView({ kind: 'player', game, code });
   }
@@ -86,8 +92,8 @@ export function App() {
         />
       );
     case 'host':
-      return <HostView game={view.game} />;
+      return <HostView game={view.game} combatEvents={combatEvents} />;
     case 'player':
-      return <PlayerView game={view.game} code={view.code} error={error} focus={focus} />;
+      return <PlayerView game={view.game} code={view.code} error={error} focus={focus} combatEvents={combatEvents} />;
   }
 }

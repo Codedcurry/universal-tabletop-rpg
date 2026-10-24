@@ -48,6 +48,8 @@ const summary = (page: Page) => page.getByTestId('map-summary');
 const tileInfo = (page: Page) => page.getByTestId('tile-info');
 
 async function canvasCenter(page: Page) {
+  // Like a person looking back at the map: mouse moves don't scroll the page on their own.
+  await page.getByTestId('world-canvas').scrollIntoViewIfNeeded();
   const box = await page.getByTestId('world-canvas').boundingBox();
   if (!box) throw new Error('no canvas');
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 };

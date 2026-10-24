@@ -195,3 +195,19 @@ export function spriteFacing(facing: number, cameraHeading: number): SpriteDirec
   const quarter = Math.round(normalizeAngle(facing - cameraHeading) / (PI / 2));
   return SPRITE_DIRECTIONS[((quarter % 4) + 4) % 4] as SpriteDirection;
 }
+
+// ---------------------------------------------------------------------------
+// Zoom
+
+/** How much one mouse-wheel notch (about 100 px of scroll) zooms, as a share of the distance. */
+export const ZOOM_PER_NOTCH = 0.18;
+
+/**
+ * The camera distance after scrolling `deltaPixels` (negative = up = zoom in).
+ * Proportional to the current distance, so it feels equally quick near and
+ * far; exponential, so scrolling in and back out returns exactly.
+ */
+export function wheelZoom(distance: number, deltaPixels: number, min: number, max: number): number {
+  const next = distance * (1 + ZOOM_PER_NOTCH) ** (deltaPixels / 100);
+  return Math.min(max, Math.max(min, next));
+}

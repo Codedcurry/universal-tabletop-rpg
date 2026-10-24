@@ -53,6 +53,7 @@ test('a player joins with the room link and both sides see each other', async ({
 test("the DM's chosen title reaches players", async ({ browser }) => {
   const dm = await host(browser);
   const ana = await join(browser, dm.link, 'Ana');
+  await dm.page.getByRole('tab', { name: 'Session' }).click();
   await dm.page.getByLabel('Your title').fill('Keeper');
   await dm.page.getByLabel('Your title').press('Enter');
   await expect(ana.page.getByTestId('dm-title')).toHaveText('Keeper');
@@ -80,7 +81,7 @@ test('everyone sees the same dice roll', async ({ browser }) => {
   const ben = await join(browser, dm.link, 'Ben');
 
   await ana.page.getByLabel('Dice to roll').fill('4d6kh3+2');
-  await ana.page.getByRole('button', { name: 'Roll' }).click();
+  await ana.page.getByRole('button', { name: 'Roll', exact: true }).click();
 
   const lastRoll = (page: Page) => page.locator('[data-kind="roll"]').last();
   await expect(lastRoll(ana.page)).toContainText('4d6kh3+2');
@@ -134,11 +135,12 @@ test('players pause when the DM leaves', async ({ browser }) => {
 test('physical dice: one clearly labeled box per die, checked before rolling', async ({ browser }) => {
   const dm = await host(browser);
   const ana = await join(browser, dm.link, 'Ana');
+  await dm.page.getByRole('tab', { name: 'Session' }).click();
   await dm.page.getByLabel('Who rolls dice').selectOption({ label: 'Players use real dice' });
 
   await expect(ana.page.getByText(/roll your real dice/i)).toBeVisible();
   await ana.page.getByLabel('Dice to roll').fill('2d6 + 1 coin');
-  const roll = ana.page.getByRole('button', { name: 'Roll' });
+  const roll = ana.page.getByRole('button', { name: 'Roll', exact: true });
   await expect(roll).toBeDisabled();
 
   await ana.page.getByLabel('Die 1 of 2 · d6').fill('7');
@@ -154,8 +156,9 @@ test('physical dice: one clearly labeled box per die, checked before rolling', a
   const lastRoll = (page: Page) => page.locator('[data-kind="roll"]').last();
   await expect(lastRoll(dm.page)).toContainText('= 9');
   await expect(lastRoll(dm.page)).toContainText('physical dice');
-  // The boxes clear for the next roll.
-  await expect(ana.page.getByLabel('Die 1 of 2 · d6')).toHaveValue('');
+  // The panel clears for the next roll: no notation, so no boxes.
+  await expect(ana.page.getByLabel('Dice to roll')).toHaveValue('');
+  await expect(ana.page.getByLabel('Die 1 of 2 · d6')).toHaveCount(0);
 });
 
 test('chat and dice are separate, clearly labeled sections', async ({ browser }) => {

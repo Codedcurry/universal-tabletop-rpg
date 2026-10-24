@@ -15,12 +15,18 @@ import { type Cell, type Grid, type WorldPoint, createGrid } from '@shared/grid'
 import { DEFAULT_TERRAIN, type MapData, rayPick } from '@shared/map';
 import type { CameraCommand, CameraView } from '@shared/camera';
 import type { StylePack } from '../style/stylePack';
+import type { CombatEvent, CombatState } from '@shared/combat';
+import type { GameSystem } from '@shared/system';
 import { CameraRig } from './CameraRig';
+import { TokenLayer } from './TokenLayer';
 
 // Draws a map in 3D and reports what the pointer is over. No game logic:
 // it only turns map data into meshes and pointer positions into cells.
 // Each terrain is one mesh with a "thin instance" per tile, so even a
 // 100 x 100 map is a handful of draw calls.
+
+/** What a highlight means, which decides its color: a map-editing brush, or in a fight where you can move and who you can hurt or help. */
+export type HighlightKind = 'brush' | 'move' | 'harm' | 'help';
 
 export interface TilePointer {
   /**
@@ -35,6 +41,9 @@ export interface TilePointer {
   /** 0 = left / touch, 1 = middle, 2 = right. */
   readonly button: number;
   readonly isTouch: boolean;
+  /** Pointer position on the canvas, in pixels (to tell a click from a drag). */
+  readonly x: number;
+  readonly y: number;
 }
 
 const HEX_ROTATION = Quaternion.RotationAxis(Vector3.Up(), Math.PI / 6); // pointy-top
@@ -53,6 +62,9 @@ export class WorldView {
   private readonly engine: Engine;
   private readonly scene: Scene;
   private readonly rig: CameraRig;
+  private readonly tokens: TokenLayer;
+  private readonly labelLayer: HTMLDivElement;
+  private onTokenClick: (id: string) => void = () => undefined;
   private readonly materials = new Map<string, StandardMaterial>();
   private readonly resizeObserver: ResizeObserver;
   /** Meshes made for the current map; rebuilt when the map changes. */
@@ -92,7 +104,15 @@ export class WorldView {
 
     this.rig = new CameraRig(this.scene, canvas);
     this.rig.setGroundLevel(style.levelHeight); // the top of a level-0 tile
-    this.rig.onViewChange(() => this.markActive());
+    this.rig.onViewChange((view) => {
+      this.tokens.setTopDown(view.mode === 'topDown');
+      this.markActive();
+    });
+    // Name tags, HP bars, and floating numbers are HTML laid over the canvas.
+    this.labelLayer = document.createElement('div');
+    this.labelLayer.className = 'token-overlay';
+    canvas.parentElement?.append(this.labelLayer);
+    this.tokens = new TokenLayer(this.scene, style, this.labelLayer, (id) => this.onTokenClick(id));
 
     const sky = new HemisphericLight('sky', new Vector3(0.2, 1, -0.3), this.scene);
     sky.intensity = 0.75;
@@ -121,7 +141,14 @@ export class WorldView {
               : null;
       if (!type) return;
       const event = info.event as PointerEvent;
-      this.onPointer({ type, ...this.pick(), button: event.button, isTouch: event.pointerType === 'touch' });
+      this.onPointer({
+        type,
+        ...this.pick(),
+        button: event.button,
+        isTouch: event.pointerType === 'touch',
+        x: this.scene.pointerX,
+        y: this.scene.pointerY,
+      });
     });
 
     this.resizeObserver = new ResizeObserver(() => {
@@ -148,6 +175,9 @@ export class WorldView {
       if (this.rig.update(dt)) this.activeUntil = Math.max(this.activeUntil, now + GLIDE_MS);
       if (!this.dirty && now > this.activeUntil) return;
       this.scene.render();
+      // After drawing, so name tags follow the camera exactly as just drawn.
+      const size = { width: this.engine.getRenderWidth(), height: this.engine.getRenderHeight() };
+      if (this.tokens.update(now, this.rig.heading, size)) this.activeUntil = Math.max(this.activeUntil, now + GLIDE_MS);
       const view = this.cameraState();
       if (view !== this.lastView) this.activeUntil = Math.max(this.activeUntil, now + GLIDE_MS);
       this.lastView = view;
@@ -173,7 +203,7 @@ export class WorldView {
   private readonly onTouchDown = (event: PointerEvent) => {
     if (event.pointerType !== 'touch') return;
     if (this.touchesDown.size > 0) {
-      this.onPointer({ type: 'cancel', cell: null, point: null, button: 0, isTouch: true });
+      this.onPointer({ type: 'cancel', cell: null, point: null, button: 0, isTouch: true, x: 0, y: 0 });
     }
     this.touchesDown.add(event.pointerId);
   };
@@ -186,7 +216,7 @@ export class WorldView {
     if (event.button === 1) event.preventDefault();
     // A right-click while the left button is held (a chord: no pointerdown event fires for it).
     if (event.button === 2 && (event.buttons & 1) !== 0) {
-      this.onPointer({ type: 'cancel', cell: null, point: null, button: 2, isTouch: false });
+      this.onPointer({ type: 'cancel', cell: null, point: null, button: 2, isTouch: false, x: 0, y: 0 });
     }
   };
 
@@ -222,6 +252,22 @@ export class WorldView {
     this.markActive();
   }
 
+  /** Shows the fight; with `events`, creatures act out the action that produced it. */
+  setCombat(combat: CombatState | null, system: GameSystem | null, events: readonly CombatEvent[] | null): void {
+    this.tokens.setCombat(combat, system, events, performance.now());
+    this.markActive();
+    this.invalidate();
+  }
+
+  /** Creatures the current ability can target: their name tags become buttons. */
+  setTargets(ids: readonly string[], intent: 'harm' | 'help' = 'harm'): void {
+    this.tokens.setTargets(ids, intent);
+  }
+
+  setTokenClickHandler(handler: (id: string) => void): void {
+    this.onTokenClick = handler;
+  }
+
   /** The cell in the middle of the view. */
   centerCell(): Cell | null {
     return this.grid ? this.grid.fromWorld(this.rig.target, this.style.cellSize) : null;
@@ -243,6 +289,7 @@ export class WorldView {
     this.grid = grid;
     this.heights = new Map(map.tiles.map((tile) => [`${tile.q},${tile.r}`, tile.height]));
     this.ceiling = (Math.max(0, ...map.tiles.map((tile) => tile.height)) + 1) * this.style.levelHeight;
+    this.tokens.setMap(grid, this.heights);
     // The camera always looks at a point over the map.
     const centers = map.tiles.map((tile) => grid.toWorld(tile, this.style.cellSize));
     this.rig.setBounds(
@@ -310,10 +357,16 @@ export class WorldView {
     this.invalidate();
   }
 
-  /** Marks cells (the brush, or a shape being dragged) with a bright translucent overlay. */
-  setHighlight(cells: readonly Cell[]): void {
+  /**
+   * Marks cells with a bright translucent overlay: the brush or a shape being
+   * dragged, or in a fight, where you can move and who you can hurt or help.
+   */
+  setHighlight(cells: readonly Cell[], kind: HighlightKind = 'brush'): void {
     this.highlightMesh?.dispose();
-    this.highlightMesh = this.overlay('highlight', cells, 0.45, 0.6);
+    const tint = kind === 'brush' ? this.style.highlightColor : this.style.actionColors[kind];
+    // Red and blue are drawn unlit and nearly solid: lit and see-through, they wash out to salmon and teal over grass.
+    const strong = kind === 'harm' || kind === 'help';
+    this.highlightMesh = this.overlay('highlight', cells, strong ? 0.85 : 0.5, strong ? 1 : 0.75, tint, strong);
   }
 
   /** Faint outlines of empty cells, e.g. where "Add tiles" can build. */
@@ -323,13 +376,14 @@ export class WorldView {
   }
 
   /** A thin translucent layer over cells: on top of tiles, or on the ground outside the world. */
-  private overlay(name: string, cells: readonly Cell[], alpha: number, glow: number): Mesh | null {
+  private overlay(name: string, cells: readonly Cell[], alpha: number, glow: number, tint = this.style.highlightColor, unlit = false): Mesh | null {
     this.invalidate();
     if (cells.length === 0 || !this.grid) return null;
     const mesh = this.tileMesh(name, this.grid, this.style.tileFill);
-    const material = this.material(this.style.highlightColor, name);
+    const material = this.material(tint, `${name}-${tint}${unlit ? '-unlit' : ''}`);
+    material.disableLighting = unlit;
     material.alpha = alpha;
-    material.emissiveColor = color(this.style.highlightColor).scale(glow);
+    material.emissiveColor = color(tint).scale(glow);
     mesh.material = material;
     mesh.isPickable = false;
     const thickness = this.style.levelHeight * 0.3;
@@ -356,6 +410,8 @@ export class WorldView {
       this.canvas.removeEventListener(type, this.markActive);
     }
     this.resizeObserver.disconnect();
+    this.tokens.dispose();
+    this.labelLayer.remove();
     this.rig.dispose();
     this.engine.dispose();
   }

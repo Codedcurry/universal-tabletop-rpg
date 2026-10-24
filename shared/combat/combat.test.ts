@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Cell } from '../grid';
+import { type Cell, headingBetween } from '../grid';
 import { createWorldMap, rectangleTiles } from '../map';
 import { scriptedRandom } from '../random';
 import type { CreatureSheet } from '../system';
@@ -444,4 +444,34 @@ it('never changes the state it was given', () => {
   act(state, { type: 'useAbility', actorId: 'hero', abilityId: 'strike', targetId: 'goblin' }, [9, 4]);
   act(state, { type: 'move', actorId: 'hero', to: c(1, 3) });
   expect(JSON.stringify(state)).toBe(before);
+});
+
+describe('facing', () => {
+  // Facing is a compass heading (0 = north, PI/2 = east), used to pick sprite directions.
+  const EAST = Math.PI / 2;
+  const WEST = -Math.PI / 2;
+
+  it('starts every creature facing the nearest enemy', () => {
+    const { state } = start([hero(), goblin(c(3, 3))], [9, 4]);
+    expect(state.combatants.hero?.facing).toBeCloseTo(EAST);
+    expect(state.combatants.goblin?.facing).toBeCloseTo(WEST);
+  });
+
+  it('turns to face the way it moved', () => {
+    const { state } = start([hero(), goblin(c(5, 3))], [9, 4]);
+    const moved = act(state, { type: 'move', actorId: 'hero', to: c(1, 3) }).state;
+    expect(moved.combatants.hero?.facing).toBeCloseTo(WEST);
+  });
+
+  it('turns to face whatever it targets', () => {
+    const { state } = start([hero(), goblin(c(2, 2))], [9, 4]);
+    const turned = act(state, { type: 'useAbility', actorId: 'hero', abilityId: 'strike', targetId: 'goblin' }, [1]).state;
+    expect(turned.combatants.hero?.facing).toBeCloseTo(headingBetween(ctx.map.grid, c(2, 3), c(2, 2)));
+  });
+
+  it('keeps facing the same way when using an ability on itself', () => {
+    const { state } = start([hero({ hp: 3 }), goblin(c(3, 3))], [19, 0]);
+    const healed = act(state, { type: 'useAbility', actorId: 'hero', abilityId: 'second_wind', targetId: 'hero' }, [3]).state;
+    expect(healed.combatants.hero?.facing).toBeCloseTo(EAST);
+  });
 });

@@ -1,4 +1,5 @@
-import { type ChangeEvent, type FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { type ChangeEvent, type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   EMPTY_HISTORY,
   type EditHistory,
@@ -22,7 +23,10 @@ import {
 import { type Cell, type GridKind, cellKey } from '@shared/grid';
 import { MAX_TILES, type MapData, MapError, createWorldMap, validateMapData } from '@shared/map';
 import type { HostSession } from '@shared/net';
+import type { CombatEvent } from '@shared/combat';
 import type { TilePointer } from '../render/WorldView';
+import { CombatHud } from './CombatHud';
+import { useCombatPlay } from './useCombatPlay';
 import { TERRAINS, placeholderStyle } from '../style/stylePack';
 import { WorldCanvas, mapSummary, tileDescription } from './WorldCanvas';
 
@@ -57,6 +61,8 @@ const PRESETS: { id: GeneratePreset; label: string }[] = [
 ];
 
 const isWallTool = (tool: Tool) => tool === 'wall' || tool === 'unwall';
+const NO_CELLS: readonly Cell[] = [];
+const NO_IDS: readonly string[] = [];
 
 /** How many rings of empty cells "Add tiles" shows around the world. */
 const GHOST_DEPTH = 3;
@@ -71,8 +77,26 @@ interface Stroke {
   readonly touched: Set<string>;
 }
 
-export function MapEditor({ session }: { readonly session: HostSession }) {
-  const map = session.snapshot().map;
+interface Props {
+  readonly session: HostSession;
+  /** The latest combat action, for the creatures to act out. */
+  readonly combatEvents: { readonly events: readonly CombatEvent[]; readonly key: number } | null;
+  /** Map tools are in use (the Map tab): clicks edit the map. Otherwise clicks run the fight. */
+  readonly editing: boolean;
+  /** Where the map tools render (the Map tab), so they can be hidden without losing their state. */
+  readonly toolsSlot: HTMLElement | null;
+  /** Outside editing: a click on a map cell, offered to the encounter tools first. Return true if handled. */
+  onMapClick?(cell: Cell): boolean;
+  /** Shown over the map (e.g. "Click a tile to place Goblin"). */
+  readonly mapOverlay?: ReactNode;
+}
+
+/** A press that moves less than this (pixels) is a click, not a drag. */
+const CLICK_SLOP = 8;
+
+export function MapEditor({ session, combatEvents, editing, toolsSlot, onMapClick, mapOverlay }: Props) {
+  const snapshot = session.snapshot();
+  const map = snapshot.map;
   const [tool, setTool] = useState<Tool>('raise');
   const [shape, setShape] = useState<ShapeKind>('single');
   const [terrain, setTerrain] = useState<string>('stone');
@@ -90,6 +114,18 @@ export function MapEditor({ session }: { readonly session: HostSession }) {
   const [frameKey, setFrameKey] = useState(0);
   const stroke = useRef<Stroke | null>(null);
   const world = useMemo(() => (map ? createWorldMap(map) : null), [map]);
+  const play = useCombatPlay({
+    combat: snapshot.combat,
+    system: snapshot.system,
+    map,
+    canControl: () => true, // the DM may act for any creature
+    act: (action) => {
+      const result = session.act(action);
+      setPlayError(result.ok ? null : result.reason);
+    },
+  });
+  const [playError, setPlayError] = useState<string | null>(null);
+  const pressedAt = useRef<{ x: number; y: number } | null>(null);
   // Where "Add tiles" can build: a few rings of empty cells around the world.
   const ghosts = useMemo(() => (world && tool === 'addTiles' ? frontierCells(world, GHOST_DEPTH) : []), [world, tool]);
 
@@ -180,6 +216,18 @@ export function MapEditor({ session }: { readonly session: HostSession }) {
   // --- pointer handling ----------------------------------------------------
 
   function onPointer(pointer: TilePointer): void {
+    if (!editing) {
+      if (pointer.type !== 'cancel') setHovered(pointer.cell);
+      // A click goes to the encounter tools first (placing, selecting), then to the fight.
+      if (pointer.type === 'down' && pointer.button === 0) pressedAt.current = { x: pointer.x, y: pointer.y };
+      if (pointer.type === 'up' && pointer.button === 0 && pressedAt.current && pointer.cell && onMapClick) {
+        const moved = Math.hypot(pointer.x - pressedAt.current.x, pointer.y - pressedAt.current.y);
+        pressedAt.current = null;
+        if (moved <= CLICK_SLOP && onMapClick(pointer.cell)) return;
+      }
+      play.onPointer(pointer);
+      return;
+    }
     if (pointer.type === 'cancel') {
       cancelStroke();
       return;
@@ -360,8 +408,8 @@ export function MapEditor({ session }: { readonly session: HostSession }) {
   const usesTerrain = tool === 'paint' || tool === 'addTiles';
   const usesLevel = tool === 'flatten' || tool === 'addTiles';
 
-  return (
-    <div className="map-editor">
+  const tools = (
+    <div className="map-tools">
       <div className="toolbar" role="toolbar" aria-label="Map tools">
         {TOOLS.map((entry) => (
           <button
@@ -467,6 +515,13 @@ export function MapEditor({ session }: { readonly session: HostSession }) {
         </p>
       )}
 
+    </div>
+  );
+
+  return (
+    <div className="map-editor">
+      {toolsSlot ? createPortal(tools, toolsSlot) : tools}
+
       {map && world ? (
         <>
           <p className="map-summary" data-testid="map-summary">
@@ -474,9 +529,15 @@ export function MapEditor({ session }: { readonly session: HostSession }) {
           </p>
           <WorldCanvas
             map={map}
-            editing={touchEdits}
-            highlight={preview}
-            ghosts={ghosts}
+            editing={editing && touchEdits}
+            highlight={editing ? preview : play.highlight}
+            highlightKind={editing ? 'brush' : play.highlightKind}
+            ghosts={editing ? ghosts : NO_CELLS}
+            combat={snapshot.combat}
+            system={snapshot.system}
+            combatEvents={combatEvents}
+            targets={editing ? NO_IDS : play.targets}
+            onTokenClick={play.onTokenClick}
             frameKey={frameKey}
             overlay={
               drawing === 'touch' ? (
@@ -490,21 +551,34 @@ export function MapEditor({ session }: { readonly session: HostSession }) {
                 <div className="stroke-hint" role="status">
                   Right-click or Esc to cancel
                 </div>
-              ) : null
+              ) : (
+                (mapOverlay ?? null)
+              )
             }
             onFocusEveryone={(cell) => session.focusPlayers(cell)}
             onPointer={onPointer}
           />
+          {!editing && snapshot.combat && snapshot.system && (
+            <CombatHud combat={snapshot.combat} system={snapshot.system} play={play} />
+          )}
+          {!editing && playError && (
+            <p className="error" role="alert">
+              {playError}
+            </p>
+          )}
           <p className="tile-info" data-testid="tile-info">
             {tileDescription(world, hovered)}
           </p>
           <p className="hint">
-            Left-click or drag to use the tool · right-drag to pan · wheel to zoom · Q/E or middle-drag to turn ·{' '}
-            {TOOLS.find((entry) => entry.id === tool)?.hint}
+            {editing
+              ? `Left-click or drag to use the tool · right-drag to pan · wheel to zoom · Q/E or middle-drag to turn · ${TOOLS.find((entry) => entry.id === tool)?.hint ?? ''}`
+              : 'Click a creature to select it · on a turn, click a lit tile to move · right-drag to pan · wheel to zoom · Q/E to turn'}
           </p>
         </>
       ) : (
-        <p className="muted">No map yet: use <b>New map</b> or <b>Generate</b> above.</p>
+        <p className="muted">
+          No map yet: open the <b>Map</b> tab and use <b>New map</b> or <b>Generate</b>.
+        </p>
       )}
     </div>
   );

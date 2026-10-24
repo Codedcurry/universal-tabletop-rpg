@@ -1,6 +1,6 @@
 import { evaluateFormula, parseFormula } from '../formula';
-import { cellKey } from '../grid';
-import { type Occupant, findPath } from '../movement';
+import { cellKey, headingBetween } from '../grid';
+import { type Occupant, type Reach, findPath, reachable } from '../movement';
 import type { RandomSource } from '../random';
 import {
   type AbilityDef,
@@ -34,21 +34,25 @@ export class CombatSetupError extends Error {
 }
 
 /** Thrown inside an action to reject it; turned into `{ ok: false }`. */
-class RuleViolation extends Error {}
+/** @internal Shared with dm.ts. */
+export class RuleViolation extends Error {}
 
-function violation(message: string): never {
+/** @internal */
+export function violation(message: string): never {
   throw new RuleViolation(message);
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 
-function roll(text: string, vars: Readonly<Record<string, number>>, random: RandomSource) {
+/** @internal */
+export function roll(text: string, vars: Readonly<Record<string, number>>, random: RandomSource) {
   const result = evaluateFormula(parseFormula(text), vars, random);
   return { value: Math.floor(result.value), dice: result.dice };
 }
 
-function standing(combatant: Combatant): boolean {
+/** @internal */
+export function standing(combatant: Combatant): boolean {
   return combatant.hp > 0;
 }
 
@@ -66,7 +70,8 @@ function blockingCondition(
   return activeConditions(system, combatant).find((condition) => condition[flag] === true);
 }
 
-function sidesStanding(combatants: Iterable<Combatant>): Set<string> {
+/** @internal */
+export function sidesStanding(combatants: Iterable<Combatant>): Set<string> {
   const sides = new Set<string>();
   for (const combatant of combatants) if (standing(combatant)) sides.add(combatant.side);
   return sides;
@@ -98,15 +103,17 @@ export function setupFromMonster(
  * A working copy of the state used while resolving one action. Combatants are
  * replaced, never mutated, so the caller's state is untouched.
  */
-class Draft {
+/** @internal */
+export class Draft {
   status: CombatState['status'];
   winner: string | null;
   round: number;
   turnIndex: number;
   movementLeft: number;
   actionUsed: boolean;
-  readonly order: readonly string[];
+  readonly order: string[];
   readonly combatants: Record<string, Combatant>;
+  readonly initiative: Record<string, number>;
   readonly events: CombatEvent[] = [];
 
   constructor(
@@ -119,8 +126,9 @@ class Draft {
     this.turnIndex = state.turnIndex;
     this.movementLeft = state.movementLeft;
     this.actionUsed = state.actionUsed;
-    this.order = state.order;
+    this.order = [...state.order];
     this.combatants = { ...state.combatants };
+    this.initiative = { ...state.initiative };
   }
 
   get(id: string): Combatant {
@@ -176,6 +184,7 @@ class Draft {
       movementLeft: this.movementLeft,
       actionUsed: this.actionUsed,
       combatants: this.combatants,
+      initiative: this.initiative,
     };
   }
 }
@@ -183,7 +192,8 @@ class Draft {
 // ---------------------------------------------------------------------------
 // Starting combat
 
-function validateSetups(ctx: CombatContext, setups: readonly CombatantSetup[]): void {
+/** @internal */
+export function validateSetups(ctx: CombatContext, setups: readonly CombatantSetup[]): void {
   const ids = new Set<string>();
   const positions = new Set<string>();
   const abilityIds = new Set(ctx.system.abilities.map((ability) => ability.id));
@@ -216,10 +226,16 @@ function validateSetups(ctx: CombatContext, setups: readonly CombatantSetup[]): 
   }
 }
 
+export interface StartOptions {
+  /** False: no initiative rolls; creatures act in the order given. Default true. */
+  readonly rollInitiative?: boolean;
+}
+
 export function startCombat(
   ctx: CombatContext,
   setups: readonly CombatantSetup[],
   random: RandomSource,
+  options: StartOptions = {},
 ): { state: CombatState; events: readonly CombatEvent[] } {
   validateSetups(ctx, setups);
 
@@ -233,21 +249,39 @@ export function startCombat(
       xpValue: setup.xpValue ?? 0,
       hp: setup.hp ?? computeCreature(ctx.system, setup.sheet).maxHp,
       conditions: [],
+      facing: setup.facing ?? 0,
     };
+  }
+  // Everyone starts facing the nearest enemy, unless told otherwise.
+  for (const setup of setups) {
+    if (setup.facing !== undefined) continue;
+    const self = combatants[setup.sheet.id] as Combatant;
+    const enemies = Object.values(combatants).filter((other) => other.side !== self.side && standing(other));
+    const nearest = enemies.reduce<Combatant | undefined>((best, other) => {
+      if (!best) return other;
+      const grid = ctx.map.grid;
+      return grid.distance(self.position, other.position) < grid.distance(self.position, best.position) ? other : best;
+    }, undefined);
+    if (nearest) combatants[setup.sheet.id] = { ...self, facing: headingBetween(ctx.map.grid, self.position, nearest.position) };
   }
   if (sidesStanding(Object.values(combatants)).size < 2) {
     throw new CombatSetupError('Combat needs creatures standing on at least two sides');
   }
 
   const events: CombatEvent[] = [];
-  const initiative = setups.map((setup, index) => {
-    const vars = computeCreature(ctx.system, setup.sheet).vars;
-    const { value, dice } = roll(ctx.system.initiative, vars, random);
-    events.push({ type: 'initiativeRolled', combatantId: setup.sheet.id, total: value, dice });
-    return { id: setup.sheet.id, total: value, index };
-  });
+  // Without initiative, creatures act in the order given (the DM's list).
+  const initiative = options.rollInitiative === false
+    ? []
+    : setups.map((setup, index) => {
+        const vars = computeCreature(ctx.system, setup.sheet).vars;
+        const { value, dice } = roll(ctx.system.initiative, vars, random);
+        events.push({ type: 'initiativeRolled', combatantId: setup.sheet.id, total: value, dice });
+        return { id: setup.sheet.id, total: value, index };
+      });
   // Highest first; ties keep setup order.
-  const order = [...initiative].sort((a, b) => b.total - a.total || a.index - b.index).map((entry) => entry.id);
+  const order = options.rollInitiative === false
+    ? setups.map((setup) => setup.sheet.id)
+    : [...initiative].sort((a, b) => b.total - a.total || a.index - b.index).map((entry) => entry.id);
   events.push({ type: 'combatStarted', order });
 
   const draft = new Draft(ctx, {
@@ -259,6 +293,7 @@ export function startCombat(
     movementLeft: 0,
     actionUsed: false,
     combatants,
+    initiative: Object.fromEntries(initiative.map((entry) => [entry.id, entry.total])),
   });
   draft.events.push(...events, { type: 'roundStarted', round: 1 });
   // Setup guarantees at least two creatures are standing, so one exists.
@@ -277,6 +312,7 @@ export function applyAction(
 ): ActionResult {
   try {
     if (state.status === 'ended') violation('Combat is over');
+    if (state.status === 'setup') violation("The fight hasn't started yet");
     const draft = new Draft(ctx, state);
     const actor = draft.get(action.actorId);
     if (state.order[state.turnIndex] !== action.actorId) {
@@ -308,18 +344,13 @@ function move(ctx: CombatContext, draft: Draft, actorId: string, to: CombatantSe
   const blocker = blockingCondition(ctx.system, actor, 'preventsMovement');
   if (blocker) violation(`${actor.sheet.name} is ${blocker.name} and can't move`);
 
-  // Allies and downed bodies can be passed but not stopped on; standing enemies block.
-  const occupants = new Map<string, Occupant>();
-  for (const [id, other] of Object.entries(draft.combatants)) {
-    if (id === actorId) continue;
-    const hostile = other.side !== actor.side && standing(other);
-    occupants.set(cellKey(other.position), hostile ? 'enemy' : 'ally');
-  }
-
+  const occupants = occupantsFor(draft.combatants, actorId);
   const path = findPath({ map: ctx.map, rules: ctx.system.movement, occupants }, actor.position, to, draft.movementLeft);
   if (!path) violation(`${actor.sheet.name} can't reach that tile this turn`);
 
-  draft.update(actorId, { position: to });
+  const steps = path.path;
+  const facing = headingBetween(ctx.map.grid, steps[steps.length - 2] as CombatantSetup['position'], to);
+  draft.update(actorId, { position: to, facing });
   draft.movementLeft -= path.cost;
   draft.emit({ type: 'moved', combatantId: actorId, path: path.path, cost: path.cost });
 }
@@ -362,6 +393,7 @@ function useAbility(
   checkTarget(ctx, ability, actor, target);
 
   draft.actionUsed = true;
+  if (targetId !== actorId) draft.update(actorId, { facing: headingBetween(ctx.map.grid, actor.position, target.position) });
   draft.emit({ type: 'abilityUsed', actorId, abilityId, targetId, animation: ability.animation });
 
   const actorVars = computeCreature(system, actor.sheet).vars;
@@ -434,7 +466,8 @@ function endTurn(draft: Draft, actorId: string): void {
 }
 
 /** Ends combat when only one side has anyone standing, and shares out XP. */
-function checkForEnd(ctx: CombatContext, draft: Draft): void {
+/** @internal */
+export function checkForEnd(ctx: CombatContext, draft: Draft): void {
   const sides = sidesStanding(Object.values(draft.combatants));
   if (sides.size > 1) return;
   const [winner] = sides;
@@ -465,4 +498,55 @@ function checkForEnd(ctx: CombatContext, draft: Draft): void {
     draft.emit({ type: 'xpGained', combatantId: id, amount: share, xp: sheet.xp });
     if (after.level > before.level) draft.emit({ type: 'levelUp', combatantId: id, level: after.level });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Options: what the active creature can do now, for highlighting the map.
+// They reuse the engine's own checks, so an option is offered exactly when
+// the action would be accepted.
+
+/** Allies and downed bodies can be passed but not stopped on; standing enemies block. */
+function occupantsFor(combatants: Readonly<Record<string, Combatant>>, actorId: string): Map<string, Occupant> {
+  const actor = combatants[actorId] as Combatant;
+  const occupants = new Map<string, Occupant>();
+  for (const [id, other] of Object.entries(combatants)) {
+    if (id === actorId) continue;
+    const hostile = other.side !== actor.side && standing(other);
+    occupants.set(cellKey(other.position), hostile ? 'enemy' : 'ally');
+  }
+  return occupants;
+}
+
+/** Whether it's this creature's turn and it can do anything at all. */
+function canAct(state: CombatState, actorId: string): Combatant | null {
+  const actor = state.combatants[actorId];
+  if (state.status !== 'active' || !actor || !standing(actor)) return null;
+  return state.order[state.turnIndex] === actorId ? actor : null;
+}
+
+/** Tiles the creature can move to this turn, with the cheapest path to each. */
+export function moveOptions(ctx: CombatContext, state: CombatState, actorId: string): Map<string, Reach> {
+  const actor = canAct(state, actorId);
+  if (!actor || state.movementLeft <= 0 || blockingCondition(ctx.system, actor, 'preventsMovement')) return new Map();
+  const occupants = occupantsFor(state.combatants, actorId);
+  return reachable({ map: ctx.map, rules: ctx.system.movement, occupants }, actor.position, state.movementLeft);
+}
+
+/** Creatures the ability can target right now (in setup order). */
+export function targetOptions(ctx: CombatContext, state: CombatState, actorId: string, abilityId: string): string[] {
+  const actor = canAct(state, actorId);
+  if (!actor || state.actionUsed || blockingCondition(ctx.system, actor, 'preventsActions')) return [];
+  const ability = ctx.system.abilities.find((entry) => entry.id === abilityId);
+  if (!ability || !actor.sheet.abilities.includes(abilityId)) return [];
+  return Object.entries(state.combatants)
+    .filter(([, target]) => {
+      try {
+        checkTarget(ctx, ability, actor, target);
+        return true;
+      } catch (error) {
+        if (error instanceof RuleViolation) return false;
+        throw error;
+      }
+    })
+    .map(([id]) => id);
 }

@@ -210,3 +210,20 @@ test('facing north, the map reads normally: east to the right, row 0 at the far 
   expect(right.q).toBeGreaterThan(middle.q);
   expect(up.r).toBeLessThan(middle.r);
 });
+
+test('a few wheel notches zoom a long way', async ({ browser }) => {
+  const dm = await host(browser);
+  const ana = await join(browser, dm.link, 'Ana');
+  const { x, y, box } = await center(ana.page);
+  const columnAt = async (px: number) => {
+    await ana.page.mouse.move(px, y);
+    return Number((await ana.page.getByTestId('tile-info').textContent())?.match(/\((-?\d+),/)?.[1]);
+  };
+  const before = (await columnAt(x + box.width * 0.3)) - (await columnAt(x));
+  await ana.page.mouse.move(x, y);
+  for (let i = 0; i < 3; i++) await ana.page.mouse.wheel(0, -100);
+  await settled(ana.page);
+  const after = (await columnAt(x + box.width * 0.3)) - (await columnAt(x));
+  // Zoomed in: the same distance on screen now spans far fewer tiles.
+  expect(after).toBeLessThanOrEqual(Math.floor(before * 0.7));
+});

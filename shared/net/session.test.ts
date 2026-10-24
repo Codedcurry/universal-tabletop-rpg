@@ -621,3 +621,101 @@ describe('"focus everyone here"', () => {
     expect(network.host.snapshot().version).toBeGreaterThan(before); // only the join changed state
   });
 });
+
+describe('combat in the log', () => {
+  it('writes what happens in a fight to everyone\'s log: actions in the Game log, turns in General', () => {
+    const network = createTestNetwork();
+    const ana = network.join('Ana', { character: anaSheet });
+    const characterId = setupCombat(network, ana);
+    network.hostRandom.push(9, 0);
+    ana.session.act({ type: 'useAbility', actorId: characterId, abilityId: 'strike', targetId: 'goblin' });
+    ana.session.act({ type: 'endTurn', actorId: characterId });
+    network.flush();
+    const game = (log: readonly LogEntry[]) => log.filter((entry) => entry.kind === 'game').map((entry) => entry.text);
+    const general = (log: readonly LogEntry[]) => log.filter((entry) => entry.kind === 'system').map((entry) => entry.text);
+    for (const log of [network.host.snapshot().log, ana.session.state?.log ?? []]) {
+      expect(game(log)).toEqual(
+        expect.arrayContaining([
+          'The fight begins! Turn order: Ana the Bold, Goblin',
+          "Ana the Bold's Strike on Goblin: 15 vs defense 12, hit",
+          'Goblin takes 4 damage (4 HP left)',
+        ]),
+      );
+      expect(general(log)).toEqual(expect.arrayContaining(['Round 1', "Ana the Bold's turn", "Goblin's turn"]));
+    }
+    expectInSync(network, ana);
+  });
+});
+
+describe("the DM's encounter controls", () => {
+  function staged() {
+    const network = createTestNetwork({ dmTitle: 'Keeper' });
+    const ana = network.join('Ana', { character: anaSheet });
+    network.host.setSystem(skirmish);
+    network.host.setMap(map);
+    expect(network.host.addCreature(network.host.playerSetup('p1', { q: 1, r: 3 })).ok).toBe(true);
+    expect(network.host.addCreature({ ...goblinSetup(), position: { q: 4, r: 3 } }).ok).toBe(true);
+    network.flush();
+    return { network, ana };
+  }
+
+  it('places creatures before the fight, and players see them', () => {
+    const { network, ana } = staged();
+    expect(ana.session.state?.combat?.status).toBe('setup');
+    expect(Object.keys(ana.session.state?.combat?.combatants ?? {})).toEqual(['pc-p1', 'goblin']);
+    expect(texts(ana.session.state?.log ?? [])).toContain('Keeper adds Goblin');
+    expectInSync(network, ana);
+  });
+
+  it('renames, edits, moves, and removes creatures at any moment', () => {
+    const { network, ana } = staged();
+    network.hostRandom.push(19, 0);
+    expect(network.host.beginFight().ok).toBe(true);
+    expect(network.host.renameCreature('goblin', 'Grizzle').ok).toBe(true);
+    expect(network.host.editCreature('goblin', { hp: 3 }).ok).toBe(true);
+    expect(network.host.placeCreature('goblin', { q: 5, r: 3 }).ok).toBe(true);
+    network.flush();
+    const goblin = ana.session.state?.combat?.combatants.goblin;
+    expect(goblin?.sheet.name).toBe('Grizzle');
+    expect(goblin?.hp).toBe(3);
+    expect(goblin?.position).toEqual({ q: 5, r: 3 });
+    expect(texts(ana.session.state?.log ?? [])).toEqual(
+      expect.arrayContaining(['Keeper renames Goblin to Grizzle', 'Keeper changes Grizzle: HP 8 → 3', 'Keeper moves Grizzle']),
+    );
+    expect(network.host.removeCreature('goblin').ok).toBe(true);
+    network.flush();
+    expect(ana.session.state?.combat?.status).toBe('ended');
+    expectInSync(network, ana);
+  });
+
+  it('reorders the turn order, and can start the fight in that order', () => {
+    const { network, ana } = staged();
+    expect(network.host.reorderCreatures(['goblin', 'pc-p1']).ok).toBe(true);
+    expect(network.host.beginFight({ rollInitiative: false }).ok).toBe(true);
+    network.flush();
+    expect(ana.session.state?.combat?.order).toEqual(['goblin', 'pc-p1']);
+    expect(ana.session.state?.combat?.order[ana.session.state.combat.turnIndex]).toBe('goblin');
+    expect(texts(ana.session.state?.log ?? [])).toContain('Keeper changes the turn order: Goblin, Ana the Bold');
+    expectInSync(network, ana);
+  });
+
+  it('reports a refused change instead of applying it', () => {
+    const { network } = staged();
+    const result = network.host.placeCreature('goblin', { q: 1, r: 3 });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/occupied/i);
+  });
+
+  it('can stop a fight and keep everyone on the map, or clear the encounter', () => {
+    const { network, ana } = staged();
+    network.hostRandom.push(19, 0);
+    network.host.beginFight();
+    network.host.stopFight();
+    network.flush();
+    expect(ana.session.state?.combat?.status).toBe('setup');
+    expect(Object.keys(ana.session.state?.combat?.combatants ?? {})).toHaveLength(2);
+    network.host.endCombat();
+    network.flush();
+    expect(ana.session.state?.combat).toBeNull();
+  });
+});

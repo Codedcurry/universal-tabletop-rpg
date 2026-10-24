@@ -18,6 +18,8 @@ import {
   spriteFacing,
   turnCardinal,
   twistAngle,
+  ZOOM_PER_NOTCH,
+  wheelZoom,
 } from './index';
 
 // Compass convention: heading is where the camera LOOKS. 0 = north (toward
@@ -225,5 +227,35 @@ describe('sprite facing', () => {
     expect(spriteFacing(0, 0.6)).toBe('up');
     expect(spriteFacing(0, 1.0)).toBe('left');
     expect(spriteFacing(PI / 2, -0.3)).toBe('right');
+  });
+});
+
+describe('wheelZoom', () => {
+  // One mouse-wheel notch is about 100 pixels of scroll. Zoom is a percentage
+  // of the current distance, so it feels equally quick close up and far away.
+  it('moves a good chunk per notch: in when scrolling up, out when scrolling down', () => {
+    expect(wheelZoom(20, -100, 1, 100)).toBeCloseTo(20 / (1 + ZOOM_PER_NOTCH));
+    expect(wheelZoom(20, 100, 1, 100)).toBeCloseTo(20 * (1 + ZOOM_PER_NOTCH));
+    expect(ZOOM_PER_NOTCH).toBeGreaterThanOrEqual(0.15);
+  });
+
+  it('three notches cover a lot of ground', () => {
+    let distance = 30;
+    for (let i = 0; i < 3; i++) distance = wheelZoom(distance, -100, 1, 100);
+    expect(distance).toBeLessThan(30 * 0.66);
+  });
+
+  it('comes back exactly when scrolled in and out by the same amount', () => {
+    expect(wheelZoom(wheelZoom(17, -250, 1, 100), 250, 1, 100)).toBeCloseTo(17);
+  });
+
+  it('scales smooth trackpad scrolling in proportion', () => {
+    const tenSmallSteps = Array.from({ length: 10 }).reduce<number>((d) => wheelZoom(d, -10, 1, 100), 20);
+    expect(tenSmallSteps).toBeCloseTo(wheelZoom(20, -100, 1, 100));
+  });
+
+  it('stays within the zoom limits', () => {
+    expect(wheelZoom(3.2, -1000, 3, 50)).toBe(3);
+    expect(wheelZoom(48, 1000, 3, 50)).toBe(50);
   });
 });

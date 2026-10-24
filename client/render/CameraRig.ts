@@ -15,6 +15,7 @@ import {
   orbitFor,
   reduceCamera,
   twistAngle,
+  wheelZoom,
 } from '@shared/camera';
 
 // Drives Babylon's orbit camera from the rules in shared/camera: snapping
@@ -28,6 +29,9 @@ const TWIST_STEP = 0.6;
 /** Middle-drag this many pixels for one quarter turn in the snapping view. */
 const DRAG_TURN_PIXELS = 140;
 const MIN_DISTANCE = 3;
+const ZOOM_HALF_LIFE = 0.05;
+/** Browsers report wheel scrolling in pixels, lines, or pages. */
+const WHEEL_UNIT_PIXELS = [1, 33, 400];
 
 type InputEntry = ArcRotateCamera['movement']['input']['inputMap'][number];
 
@@ -37,6 +41,8 @@ export class CameraRig {
   private editing = false;
   private bounds: Bounds | null = null;
   private focusGoal: GroundPoint | null = null;
+  /** The distance a wheel scroll is gliding toward. */
+  private zoomGoal: number | null = null;
   /** Height of the ground surface: the camera orbits a point on it, so turning keeps the same tile in the middle. */
   private groundY = 0;
   private readonly touches = new Map<number, { x: number; y: number }>();
@@ -64,6 +70,7 @@ export class CameraRig {
     this.camera.angularSensibilityY = 500;
     this.configureInput();
 
+    canvas.addEventListener('wheel', this.onWheel, { passive: true });
     canvas.addEventListener('pointerdown', this.onPointerDown);
     canvas.addEventListener('pointermove', this.onPointerMove);
     canvas.addEventListener('pointerup', this.onPointerUp);
@@ -119,6 +126,7 @@ export class CameraRig {
   place(target: GroundPoint, distance: number): void {
     this.stopGliding();
     this.focusGoal = null;
+    this.zoomGoal = null;
     const goal = cameraGoal(this.view);
     const orbit = orbitFor({
       heading: goal.heading ?? this.heading,
@@ -155,6 +163,12 @@ export class CameraRig {
       moving ||= camera.beta !== goal.tilt;
     }
 
+    if (this.zoomGoal !== null) {
+      camera.radius = approach(camera.radius, this.zoomGoal, dt, ZOOM_HALF_LIFE);
+      if (camera.radius === this.zoomGoal) this.zoomGoal = null;
+      else moving = true;
+    }
+
     let target = this.target;
     if (this.focusGoal) {
       target = {
@@ -172,6 +186,7 @@ export class CameraRig {
   }
 
   dispose(): void {
+    this.canvas.removeEventListener('wheel', this.onWheel);
     this.canvas.removeEventListener('pointerdown', this.onPointerDown);
     this.canvas.removeEventListener('pointermove', this.onPointerMove);
     this.canvas.removeEventListener('pointerup', this.onPointerUp);
@@ -197,7 +212,6 @@ export class CameraRig {
     const entries: InputEntry[] = [
       { source: 'pointer', button: 2, interaction: 'pan' },
       { source: 'pointer', button: 0, modifiers: { ctrl: true }, interaction: 'pan' },
-      { source: 'wheel', interaction: 'zoom' },
     ];
     if (this.editing) {
       if (free) entries.push({ source: 'pointer', button: 1, interaction: 'rotate' });
@@ -210,6 +224,13 @@ export class CameraRig {
     const pointers = this.camera.inputs.attached.pointers as unknown as { buttons: number[] } | undefined;
     if (pointers) pointers.buttons = this.editing ? [1, 2] : [0, 1, 2];
   }
+
+  /** Wheel zoom is handled here (not by Babylon): a fixed share of the distance per notch, glided smoothly. */
+  private readonly onWheel = (event: WheelEvent) => {
+    const pixels = event.deltaY * (WHEEL_UNIT_PIXELS[event.deltaMode] ?? 1);
+    const max = this.camera.upperRadiusLimit ?? 1000;
+    this.zoomGoal = wheelZoom(this.zoomGoal ?? this.camera.radius, pixels, MIN_DISTANCE, max);
+  };
 
   // --- gestures Babylon doesn't have: twist to turn, middle-drag to turn ---
 

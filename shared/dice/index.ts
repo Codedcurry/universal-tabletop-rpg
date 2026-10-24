@@ -11,3 +11,16 @@ export {
   rollSlots,
 } from './parse';
 export { RollReplayError, replayRoll, roll, rollDice, rollDiceTerm } from './roll';
+export {
+  type Crit,
+  DICE_TIMING,
+  type RollPiece,
+  type RollPlan,
+  type RollSpeed,
+  type Tray,
+  type TrayDie,
+  addToTray,
+  planRollAnimation,
+  removeFromTray,
+  trayNotation,
+} from './animation';

@@ -5,7 +5,18 @@ import {
   type CombatEvent,
   type CombatState,
   type CombatantSetup,
+  type CombatantPatch,
   applyAction,
+  beginFight,
+  createEncounter,
+  describeCombatEvents,
+  dmAddCombatant,
+  dmEditCombatant,
+  dmPlaceCombatant,
+  dmRemoveCombatant,
+  dmRenameCombatant,
+  dmReorderCombatants,
+  type StartOptions,
   startCombat,
 } from '../combat';
 import { DiceNotationError, RollReplayError, type RollResult, replayRoll, roll } from '../dice';
@@ -68,6 +79,7 @@ interface PlayerRecord {
 }
 
 const DEDUPE_WINDOW = 200;
+const NO_ENCOUNTER: ActionResult = { ok: false, reason: 'There is no encounter yet' };
 
 export function characterIdFor(playerId: string): string {
   return `pc-${playerId}`;
@@ -241,8 +253,69 @@ export class HostSession {
     return events;
   }
 
+  /** Clears the encounter: no fight and no creatures on the map. */
   endCombat(): void {
     this.publish({ kind: 'combat', combat: null, events: [] });
+  }
+
+  // --- the encounter: placing and changing creatures, before or during a fight ---
+
+  /** Places a creature on the map (starting an encounter if there isn't one). Mid-fight, it rolls initiative. */
+  addCreature(setup: CombatantSetup): ActionResult {
+    return this.dmEdit((context, combat) => dmAddCombatant(context, combat ?? createEncounter(), setup, this.options.random));
+  }
+
+  removeCreature(id: string): ActionResult {
+    return this.dmEdit((context, combat) => (combat ? dmRemoveCombatant(context, combat, id) : NO_ENCOUNTER));
+  }
+
+  placeCreature(id: string, to: Cell): ActionResult {
+    return this.dmEdit((context, combat) => (combat ? dmPlaceCombatant(context, combat, id, to) : NO_ENCOUNTER));
+  }
+
+  renameCreature(id: string, name: string): ActionResult {
+    return this.dmEdit((_context, combat) => (combat ? dmRenameCombatant(combat, id, name) : NO_ENCOUNTER));
+  }
+
+  editCreature(id: string, patch: CombatantPatch): ActionResult {
+    return this.dmEdit((context, combat) => (combat ? dmEditCombatant(context, combat, id, patch) : NO_ENCOUNTER));
+  }
+
+  /** Sets the turn order (in setup: the listed order, used if the fight starts without initiative). */
+  reorderCreatures(order: readonly string[]): ActionResult {
+    return this.dmEdit((_context, combat) => (combat ? dmReorderCombatants(combat, order) : NO_ENCOUNTER));
+  }
+
+  /**
+   * Starts the fight (or starts it again after one ends): rolls initiative for
+   * everyone placed, or with `rollInitiative: false` uses the listed order.
+   */
+  beginFight(options: StartOptions = {}): ActionResult {
+    return this.dmEdit((context, combat) => (combat ? beginFight(context, combat, this.options.random, options) : NO_ENCOUNTER));
+  }
+
+  /** Stops the fight but keeps everyone on the map, ready to start again. */
+  stopFight(): void {
+    const combat = this.state.combat;
+    if (!combat || combat.status === 'setup') return;
+    this.publish({
+      kind: 'combat',
+      combat: { ...combat, status: 'setup', winner: null, round: 0, turnIndex: 0, movementLeft: 0, actionUsed: false, initiative: {} },
+      events: [],
+    });
+    this.log({ kind: 'system', text: `${this.state.dmTitle} stops the fight` });
+  }
+
+  private dmEdit(change: (context: CombatContext, combat: CombatState | null) => ActionResult): ActionResult {
+    let context: CombatContext;
+    try {
+      context = this.combatContext();
+    } catch (error) {
+      return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+    }
+    const result = change(context, this.state.combat);
+    if (result.ok) this.setCombat(result.state, result.events);
+    return result;
   }
 
   /** The DM may act for any creature. */
@@ -429,6 +502,18 @@ export class HostSession {
   private setCombat(combat: CombatState, events: readonly CombatEvent[]): void {
     this.publish({ kind: 'combat', combat, events });
     this.options.onCombatEvents?.(events);
+    // Write what happened to the log: actions to the Game log, turns and rounds to General.
+    const system = this.state.system;
+    const lines = describeCombatEvents(events, {
+      dmTitle: this.state.dmTitle,
+      nameOf: (id) => combat.combatants[id]?.sheet.name ?? id,
+      abilityName: (id) => system?.abilities.find((ability) => ability.id === id)?.name ?? id,
+      conditionName: (id) => system?.conditions.find((condition) => condition.id === id)?.name ?? id,
+    });
+    for (const line of lines) {
+      if (line.channel === 'general') this.log({ kind: 'system', text: line.text });
+      else this.log({ kind: 'game', text: line.text, tone: line.tone });
+    }
   }
 
   private publishPlayers(): void {

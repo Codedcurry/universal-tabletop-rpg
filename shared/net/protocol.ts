@@ -49,6 +49,8 @@ interface LogBase {
 
 export type LogEntry =
   | (LogBase & { readonly kind: 'system'; readonly text: string })
+  /** What happened in a fight (the Game log tab). */
+  | (LogBase & { readonly kind: 'game'; readonly text: string; readonly tone: 'action' | 'damage' | 'heal' | 'info' | 'xp' })
   | (LogBase & {
       readonly kind: 'chat';
       readonly from: ParticipantId;

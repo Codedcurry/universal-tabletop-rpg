@@ -71,11 +71,27 @@ A PC- and mobile-friendly take on Tabletop Simulator, built specifically for tab
 - "Focus everyone here" (DM) sends a one-off `focus` message with a cell; players' cameras glide there. It is not session state.
 - Map editor drags can be cancelled mid-stroke: right-click while holding the left button, Esc, a second finger on touch screens, or the on-screen Cancel button. Cancelling reverts everything the stroke changed and leaves no undo step.
 
+### Tokens, combat visuals, dice, and the log (step 7)
+- Combatants have `facing` (a compass heading): they start facing the nearest enemy, turn the way they move and toward whatever they target. `headingBetween` (shared/grid) gives the heading between two cells; `spriteFacing` picks the sprite direction.
+- `shared/anim`: `scheduleCombatEvents` turns one action's events into a timeline (walk along the path, attack by type with later impacts for ranged/spell, hit/dodge/defend at impact, downed after the hit, floating texts, victory for standing winners, XP and level-ups); `resolveClip` applies the fallback rule (real frames if present, else lunge/brace/shake+red/hop/tipOver/jump/bob/itemBob); `proceduralPose` gives each motion's pose over time. All timings in `DEFAULT_TIMING`.
+- `moveOptions` / `targetOptions` (shared/combat) list what the active creature can do; they reuse the engine's own checks and a test proves they match the engine exactly.
+- `client/render/TokenLayer.ts`: billboard sprites (2.5D) or round discs (top-down), HTML name tags with HP meters, floating numbers, a gold ring under the active creature. HP bars change when the blow lands. Placeholder art (`client/style/placeholderSprites.ts`) draws 16x24 pixel figures per direction in team colors; only idle frames, so every action uses the fallback motions.
+- Play controls (`useCombatPlay`): a click (not a drag) on a highlighted tile moves; picking an ability highlights targets, and a click on one (or its name tag) attacks. Players use this in their map view; the DM plays monsters the same way whenever the Map tab is not open. `CombatHud` shows HP, XP, moves left, abilities, and End turn; fixed to the bottom on phones.
+- Dice: `planRollAnimation` (shared/dice/animation.ts) plans the throw from the already-decided result: throw/tumble/settle/reveal, 50–80 ms stagger, big pools compressed, coins ~1 s, big moments (natural max/1 on a d20 or a single-die roll) hold 0.4 s longer, speeds Fast/Normal/Dramatic/Off. All timings in `DICE_TIMING`. The tray (`addToTray`, `trayNotation`) builds notation from dice buttons. `DiceRollAnimation` throws every roll a viewer can see; tap to skip; short vibration on landing on touch devices.
+- Combat is written to the shared log (`describeCombatEvents`): actions as `game` entries (Game log tab), turns and rounds as `system` entries (General). `LogList` has All / General / Player chat / Game log tabs, timestamps, color-coding, roll breakdowns on tap, and is a drawer on phones.
+
+### DM tools and encounters
+- The DM page: map beside a hideable `DM tools` panel with tabs Encounter / Map / Session (sticky and self-scrolling on wide screens). Map-editing tools only work while the Map tab is open (they render into it through a portal); otherwise map clicks select creatures, place them, or play the fight. Starting a fight switches Map to Encounter.
+- `CombatState.status` is `setup | active | ended`. `shared/combat/dm.ts`: `createEncounter`, `dmAddCombatant` (mid-fight it rolls initiative and slots in without disturbing the current turn), `dmRemoveCombatant`, `dmPlaceCombatant`, `dmRenameCombatant`, `dmEditCombatant` (stats, HP, XP, side, PC flag, XP value, abilities, conditions; emits readable change lists), `beginFight`. DM changes are logged as "{DM title} renames Goblin to Grizzle" etc.
+- `EncounterPanel`: Start/Stop fight (with a "Roll initiative" choice), Clear encounter, add a monster or a player's character and click the map to place it, the `Roster`, and a `CreatureEditor` (sends only changed fields) with Move on map and Remove. Placing scrolls the map into view.
+- `Roster` ("Turn order", numbered, with a one-line note saying how the order is decided right now) is the turn order: drag a row (handle for touch, anywhere with a mouse) or use arrow keys on the handle; `dmReorderCombatants` keeps whoever is acting on their turn. Reordering in setup unticks "Roll initiative", so `beginFight(..., { rollInitiative: false })` runs in the listed order; in such fights newcomers go last.
+- Highlight colors come from the style pack (`actionColors`): move yellow, harm red, help blue, decided by `abilityIntent` (shared/system). The HUD hint and ability buttons use the same colors. The acting creature has a white ring with a glow (`activeColor`, kept apart from the yellow move tiles), a bouncing ▼ and a lit name tag (`data-active`).
+
 ### Known gaps (planned, not built yet)
+- Saved favorite rolls per character (optional in the spec) are not built yet. Dice and combat sounds are step 11.
 - The DM's session lives in memory: reloading the DM's page ends the game (storage is step 12). Use Export to keep a map.
-- Creatures aren't drawn on the map yet (tokens and sprites are step 7; `spriteFacing` is ready for them).
 - No TURN relay configured yet; players on strict networks (some mobile carriers) may fail to connect. See `.env.example`.
-- DM overrides and house rules (build step 15) — the engine currently only enforces.
+- House rules (build step 15). The DM can edit creatures directly (see DM tools), but rules themselves are not overridable yet.
 - Line of sight for targeting (step 10); range is grid distance only.
 - Resources beyond HP (mana, spell slots), critical hits, falling damage, reactions.
 

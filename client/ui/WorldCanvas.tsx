@@ -1,14 +1,18 @@
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 'react';
 import type { CameraCommand, CameraView } from '@shared/camera';
+import type { CombatEvent, CombatState } from '@shared/combat';
+import type { GameSystem } from '@shared/system';
 import type { Cell } from '@shared/grid';
 import type { MapData, WorldMap } from '@shared/map';
-import { type TilePointer, WorldView } from '../render/WorldView';
+import { type HighlightKind, type TilePointer, WorldView } from '../render/WorldView';
 import { placeholderStyle } from '../style/stylePack';
 
 interface Props {
   readonly map: MapData | null;
   readonly editing: boolean;
   readonly highlight?: readonly Cell[];
+  /** Decides the highlight color (default: the editing brush). */
+  readonly highlightKind?: HighlightKind;
   readonly ghosts?: readonly Cell[];
   /** Changing this re-frames the camera on the whole map (e.g. after a new map). */
   readonly frameKey?: number;
@@ -16,12 +20,27 @@ interface Props {
   readonly focus?: { readonly cell: Cell; readonly key: number } | null;
   /** DM only: shows "Focus everyone here", sending the cell in the middle of the view. */
   onFocusEveryone?(cell: Cell): void;
+  /** The fight to show on the map. */
+  readonly combat?: CombatState | null;
+  readonly system?: GameSystem | null;
+  /** The events of the latest combat action, played as animations; `key` changes with each action. */
+  readonly combatEvents?: { readonly events: readonly CombatEvent[]; readonly key: number } | null;
+  /** Creatures the chosen ability can target. */
+  readonly targets?: readonly string[];
+  onTokenClick?(combatantId: string): void;
   /** Extra content floating over the bottom of the map (e.g. how to cancel a drag). */
   readonly overlay?: ReactNode;
   onPointer(pointer: TilePointer): void;
 }
 
 const NONE: readonly Cell[] = [];
+const NO_TARGETS: readonly string[] = [];
+
+/** The style pack's action colors, for the HTML over the map (target buttons). */
+const actionColors = {
+  '--harm': placeholderStyle.actionColors.harm,
+  '--help': placeholderStyle.actionColors.help,
+} as CSSProperties;
 
 function headingLabel(view: CameraView): string {
   if (view.free) return 'Free camera';
@@ -31,14 +50,19 @@ function headingLabel(view: CameraView): string {
 
 /** Hosts a WorldView in React, with camera controls over it. The view is created once; props are pushed into it. */
 export function WorldCanvas(props: Props) {
-  const { map, editing, highlight = NONE, ghosts = NONE, frameKey = 0, focus = null, onFocusEveryone, overlay, onPointer } =
+  const { map, editing, highlight = NONE, highlightKind = 'brush', ghosts = NONE, frameKey = 0, focus = null, onFocusEveryone, overlay, onPointer } =
     props;
+  const { combat = null, system = null, combatEvents = null, targets = NO_TARGETS, onTokenClick } = props;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const viewRef = useRef<WorldView | null>(null);
   const [camera, setCamera] = useState<CameraView>({ mode: '2.5d', free: false, cardinal: 'north' });
   // The view calls the latest handler without being rebuilt when it changes.
   const handlerRef = useRef(onPointer);
   handlerRef.current = onPointer;
+  const tokenClickRef = useRef(onTokenClick);
+  tokenClickRef.current = onTokenClick;
+  /** The last combat action already acted out, so each one plays once. */
+  const playedKey = useRef<number | null>(null);
 
   useEffect(() => {
     const view = new WorldView(canvasRef.current as HTMLCanvasElement, placeholderStyle, (pointer) =>
@@ -46,6 +70,7 @@ export function WorldCanvas(props: Props) {
     );
     viewRef.current = view;
     const stopListening = view.onCameraChange(setCamera);
+    view.setTokenClickHandler((id) => tokenClickRef.current?.(id));
     return () => {
       stopListening();
       view.dispose();
@@ -56,7 +81,7 @@ export function WorldCanvas(props: Props) {
   useEffect(() => viewRef.current?.setMap(map), [map]);
   useEffect(() => viewRef.current?.setEditing(editing), [editing]);
   // After setMap, which clears overlays when the map changes.
-  useEffect(() => viewRef.current?.setHighlight(highlight), [highlight, map]);
+  useEffect(() => viewRef.current?.setHighlight(highlight, highlightKind), [highlight, highlightKind, map]);
   useEffect(() => viewRef.current?.setGhosts(ghosts), [ghosts, map]);
   useEffect(() => {
     if (frameKey > 0) viewRef.current?.frameMap();
@@ -64,6 +89,13 @@ export function WorldCanvas(props: Props) {
   useEffect(() => {
     if (focus) viewRef.current?.focusCell(focus.cell);
   }, [focus]);
+  // After setMap, which the tokens stand on.
+  useEffect(() => {
+    const fresh = combatEvents && combatEvents.key !== playedKey.current ? combatEvents : null;
+    if (fresh) playedKey.current = fresh.key;
+    viewRef.current?.setCombat(combat, system, fresh?.events ?? null);
+  }, [combat, system, combatEvents, map]);
+  useEffect(() => viewRef.current?.setTargets(targets, highlightKind === 'help' ? 'help' : 'harm'), [targets, highlightKind]);
 
   const command = (next: CameraCommand) => viewRef.current?.cameraCommand(next);
 
@@ -83,8 +115,13 @@ export function WorldCanvas(props: Props) {
   const canTurn = camera.mode === '2.5d' || camera.free;
 
   return (
-    <div className="world">
-      <canvas ref={canvasRef} className="world-canvas" data-testid="world-canvas" />
+    <div className="world" style={actionColors}>
+      <canvas
+        ref={canvasRef}
+        className="world-canvas"
+        data-testid="world-canvas"
+        data-highlight={highlight.length > 0 ? highlightKind : undefined}
+      />
       {overlay}
       <span className="compass" data-testid="camera-heading">
         {headingLabel(camera)}

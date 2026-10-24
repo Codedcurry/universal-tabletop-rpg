@@ -497,3 +497,633 @@ button[aria-expanded='true'] {
 .stroke-hint {
   bottom: 48px;
 }
+
+/* Name tags, HP bars, and floating numbers drawn over the 3D view. */
+.token-overlay {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.token-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  text-shadow: 0 1px 2px #000;
+  white-space: nowrap;
+  will-change: transform;
+}
+/* The creature whose turn it is: a bouncing arrow and a lit name tag. */
+.turn-marker {
+  font-size: 20px;
+  line-height: 1;
+  color: var(--accent);
+  text-shadow: 0 0 3px #000, 0 1px 2px #000;
+  animation: turn-bounce 0.9s ease-in-out infinite;
+}
+.turn-marker[hidden] {
+  display: none;
+}
+.token-label.active .token-name {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #1a1405;
+  text-shadow: none;
+  box-shadow: 0 0 8px rgba(0, 0, 0, 0.6);
+}
+@keyframes turn-bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .turn-marker {
+    animation: none;
+  }
+}
+.token-label.down .token-name {
+  opacity: 0.6;
+  text-decoration: line-through;
+}
+.token-hp {
+  width: 44px;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+.token-hp-fill {
+  height: 100%;
+  background: var(--online);
+  transition: width 0.3s ease-out;
+}
+.token-hp-fill.low {
+  background: var(--danger);
+}
+.token-target {
+  pointer-events: auto;
+  min-height: 36px;
+  padding: 0 10px;
+  font-size: 13px;
+  background: var(--harm, var(--danger));
+  border-color: var(--harm, var(--danger));
+  color: #10131a;
+  font-weight: 700;
+}
+.token-target.help {
+  background: var(--help);
+  border-color: var(--help);
+}
+.float-text {
+  position: absolute;
+  left: 0;
+  top: 0;
+  font-size: 22px;
+  font-weight: 800;
+  text-shadow: 0 2px 3px #000, 0 0 2px #000;
+  white-space: nowrap;
+  will-change: transform, opacity;
+}
+.float-text.damage {
+  color: #ff6b5b;
+}
+.float-text.heal {
+  color: #6fe08c;
+}
+.float-text.miss {
+  color: #d8d4e2;
+  font-size: 18px;
+}
+.float-text.status {
+  color: #c99bff;
+  font-size: 16px;
+}
+.float-text.xp,
+.float-text.level {
+  color: var(--accent);
+  font-size: 18px;
+}
+
+/* The combat bar. */
+.combat-hud {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--accent);
+  background: var(--surface-2);
+}
+.hud-who {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.hud-meters {
+  display: grid;
+  gap: 4px;
+}
+.hud-meter {
+  display: grid;
+  grid-template-columns: 2.2em 1fr auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.hud-meter-track {
+  height: 10px;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+.hud-meter-fill {
+  height: 100%;
+  background: var(--online);
+}
+.hud-meter.xp .hud-meter-fill {
+  background: var(--accent);
+}
+.hud-meter-fill.low {
+  background: var(--danger);
+}
+.hud-meter-text {
+  color: var(--muted);
+}
+.hud-abilities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.hud-ability {
+  min-height: 48px;
+  flex: 1 1 110px;
+}
+/* Abilities are edged in their action color: red to hurt, blue to help; filled while picking a target. */
+.hud-ability.harm {
+  border-left: 4px solid var(--harm);
+}
+.hud-ability.help {
+  border-left: 4px solid var(--help);
+}
+.hud-ability[aria-pressed='true'] {
+  color: #10131a;
+  font-weight: 700;
+}
+.hud-ability.harm[aria-pressed='true'] {
+  background: var(--harm);
+  border-color: var(--harm);
+}
+.hud-ability.help[aria-pressed='true'] {
+  background: var(--help);
+  border-color: var(--help);
+}
+.hud-end {
+  min-height: 48px;
+  flex: 1 1 110px;
+}
+.hud-hint {
+  margin: 0;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.hud-hint .swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  flex: none;
+}
+.hud-hint.move strong {
+  color: var(--move);
+}
+.hud-hint.move .swatch {
+  background: var(--move);
+}
+.hud-hint.harm strong {
+  color: var(--harm);
+}
+.hud-hint.harm .swatch {
+  background: var(--harm);
+}
+.hud-hint.help strong {
+  color: var(--help);
+}
+.hud-hint.help .swatch {
+  background: var(--help);
+}
+/* On phones the bar sits at the bottom of the screen, within thumb reach. */
+@media (max-width: 700px) {
+  .combat-hud {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10;
+    margin: 0;
+    border-radius: 14px 14px 0 0;
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+    box-shadow: 0 -6px 18px rgba(0, 0, 0, 0.5);
+  }
+  .page:has(.combat-hud) {
+    padding-bottom: 260px;
+  }
+}
+
+/* Dice panel */
+/* Sized by the panel, not the window: as many columns as fit, never spilling out. */
+.quick-dice {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(52px, 1fr));
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.quick-dice button {
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 4px;
+  font-weight: 600;
+}
+.dice-extras {
+  align-items: end;
+}
+
+/* The roll animation: thrown over everything, tap to skip. */
+.dice-roll {
+  position: fixed;
+  left: 50%;
+  top: 30%;
+  transform: translate(-50%, -50%);
+  z-index: 30;
+  min-width: min(360px, 92vw);
+  max-width: 92vw;
+  padding: 14px 18px 18px;
+  border-radius: 16px;
+  background: rgba(20, 18, 28, 0.94);
+  border: 1px solid var(--accent);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  text-align: center;
+  cursor: pointer;
+}
+.dice-roll-who {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 14px;
+}
+.dice-roll-pieces {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+.piece {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 10px;
+  background: #ece8f4;
+  color: #1a1526;
+  font-weight: 800;
+  font-size: 20px;
+  box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.18);
+}
+.piece.coin {
+  border-radius: 50%;
+  background: var(--accent);
+}
+.piece-sides {
+  position: absolute;
+  bottom: 1px;
+  right: 4px;
+  font-size: 9px;
+  font-weight: 600;
+  opacity: 0.6;
+}
+.piece.waiting {
+  opacity: 0;
+}
+.piece.tumbling {
+  animation: dice-tumble 0.32s linear infinite;
+}
+.piece.coin.tumbling {
+  animation: coin-spin 0.18s linear infinite;
+}
+.piece.landed {
+  animation: dice-settle 0.2s ease-out;
+}
+.piece.dropped.landed {
+  opacity: 0.35;
+}
+.piece.crit-max {
+  background: #ffe18a;
+  box-shadow: 0 0 18px 6px rgba(255, 210, 90, 0.85);
+}
+.piece.crit-min {
+  background: #ff9a8a;
+  box-shadow: 0 0 18px 6px rgba(255, 90, 70, 0.8);
+}
+.dice-roll-total {
+  margin: 12px 0 0;
+  font-size: 40px;
+  font-weight: 900;
+  color: var(--accent);
+  animation: total-pop 0.3s ease-out;
+}
+.dice-roll.big-max .dice-roll-total {
+  color: #ffe18a;
+  text-shadow: 0 0 18px rgba(255, 210, 90, 0.9);
+}
+.dice-roll.big-min .dice-roll-total {
+  color: #ff8a7a;
+}
+.dice-roll-moment {
+  margin: 4px 0 0;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+}
+@keyframes dice-tumble {
+  0% { transform: translateY(-6px) rotate(0deg); }
+  50% { transform: translateY(2px) rotate(180deg); }
+  100% { transform: translateY(-6px) rotate(360deg); }
+}
+@keyframes coin-spin {
+  0% { transform: scaleX(1); }
+  50% { transform: scaleX(0.1); }
+  100% { transform: scaleX(1); }
+}
+@keyframes dice-settle {
+  0% { transform: translateY(-8px) scale(1.08); }
+  60% { transform: translateY(2px) scale(0.97); }
+  100% { transform: none; }
+}
+@keyframes total-pop {
+  0% { transform: scale(0.4); opacity: 0; }
+  70% { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .piece.tumbling,
+  .piece.coin.tumbling,
+  .piece.landed,
+  .dice-roll-total {
+    animation: none;
+  }
+}
+
+/* Log tabs, timestamps, and color-coding. */
+.log-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.log-tabs [role='tab'] {
+  min-height: 36px;
+  padding: 0 10px;
+  font-size: 14px;
+}
+.log-tabs [role='tab'][aria-selected='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #1a1400;
+  font-weight: 600;
+}
+.log time {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  margin-right: 4px;
+}
+.log li[data-kind='chat'] {
+  border-left: 3px solid #6aa6ff;
+  padding-left: 6px;
+}
+.log li[data-kind='roll'] {
+  border-left: 3px solid var(--accent);
+  padding-left: 6px;
+}
+.log li[data-kind='game'] {
+  border-left: 3px solid #8d8a93;
+  padding-left: 6px;
+}
+.log li.tone-damage {
+  border-left-color: var(--danger);
+  color: #ffb3a8;
+}
+.log li.tone-heal {
+  border-left-color: var(--online);
+  color: #b5f0c4;
+}
+.log li.tone-xp {
+  border-left-color: var(--accent);
+  color: #ffe6a8;
+}
+.roll-summary {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.roll-summary:hover {
+  text-decoration: underline dotted;
+}
+.roll-breakdown {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+}
+.roll-breakdown[hidden] {
+  display: none;
+}
+.log-toggle {
+  width: 100%;
+  margin-bottom: 8px;
+  text-align: left;
+  font-weight: 600;
+}
+
+/* The DM page: the map beside the DM tools, which can be hidden. */
+.dm-layout {
+  display: grid;
+  gap: 12px;
+}
+@media (min-width: 1100px) {
+  .dm-layout {
+    grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr);
+    align-items: start;
+  }
+  .dm-layout.tools-hidden {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  /* Long tool panels scroll on their own, so the map stays in view beside them. */
+  .dm-tools {
+    position: sticky;
+    top: 12px;
+    max-height: calc(100vh - 24px);
+    overflow-y: auto;
+  }
+}
+.dm-tools-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.dm-tools-head h2 {
+  margin: 0;
+}
+.dm-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  margin-bottom: 12px;
+}
+.dm-tabs [role='tab'] {
+  min-height: 44px;
+  font-weight: 600;
+}
+.dm-tabs [role='tab'][aria-selected='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #1a1400;
+}
+@media (min-width: 900px) {
+  .columns.two {
+    grid-template-columns: minmax(280px, 1fr) minmax(320px, 1.4fr);
+  }
+}
+.add-creature {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: end;
+  margin: 8px 0;
+}
+.add-creature label {
+  flex: 1 1 140px;
+  margin: 0;
+}
+.roster {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+.roster li {
+  display: flex;
+  gap: 4px;
+  border-radius: 8px;
+  transition: transform 0.12s ease-out;
+}
+.roster .roster-entry {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+}
+.roster-note {
+  margin: -4px 0 6px;
+  font-size: 13px;
+}
+.roster .turn-number {
+  flex: none;
+  min-width: 1.6em;
+  text-align: right;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.roster .roster-entry .name {
+  flex: 1;
+
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The handle: drag it (any pointer) to change the order; touch-action keeps a finger drag from scrolling. */
+.roster .drag-handle {
+  flex: none;
+  width: 36px;
+  padding: 0;
+  cursor: grab;
+  touch-action: none;
+  color: var(--muted);
+  font-size: 18px;
+}
+@media (pointer: coarse) {
+  .roster .drag-handle {
+    width: 44px;
+  }
+}
+.roster li.dragging {
+  transform: scale(1.02);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
+  cursor: grabbing;
+}
+.roster li.dragging .drag-handle {
+  cursor: grabbing;
+  color: var(--accent);
+}
+/* Whose turn it is, in the list too. */
+.roster li.acting .roster-entry .name::before {
+  content: '▶ ';
+  color: var(--accent);
+}
+.roster .roster-entry[aria-pressed='true'] {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.creature-editor fieldset {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin: 0;
+}
+.creature-editor legend {
+  color: var(--accent);
+  padding: 0 6px;
+  font-weight: 600;
+}
+.editor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 6px 10px;
+}
+.editor-grid label {
+  margin: 0;
+}
+.creature-editor details {
+  margin: 8px 0;
+}
+.creature-editor summary {
+  cursor: pointer;
+  color: var(--accent);
+  min-height: 32px;
+}
+button.danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #1a0505;
+  font-weight: 600;
+}

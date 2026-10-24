@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type Cell, type Grid, type GridKind, cellKey, cellsEqual, createGrid, parseCellKey } from './index';
+import { type Cell, type Grid, type GridKind, cellKey, cellsEqual, createGrid, headingBetween, parseCellKey } from './index';
 
 const c = (q: number, r: number): Cell => ({ q, r });
 
@@ -219,5 +219,23 @@ describe('cell keys', () => {
 describe('createGrid', () => {
   it('rejects an unknown grid kind', () => {
     expect(() => createGrid('triangle' as GridKind)).toThrow();
+  });
+});
+
+describe('headingBetween', () => {
+  // Compass heading from one cell toward another: 0 = north (toward row 0), PI/2 = east.
+  it('points the four main ways on squares', () => {
+    const square = createGrid('square');
+    expect(headingBetween(square, c(2, 2), c(3, 2))).toBeCloseTo(Math.PI / 2);
+    expect(headingBetween(square, c(2, 2), c(2, 1))).toBeCloseTo(0);
+    expect(Math.abs(headingBetween(square, c(2, 2), c(2, 3)))).toBeCloseTo(Math.PI);
+    expect(headingBetween(square, c(2, 2), c(1, 2))).toBeCloseTo(-Math.PI / 2);
+  });
+
+  it('points between them for hex neighbors off the row', () => {
+    const hex = createGrid('hex');
+    const northWest = headingBetween(hex, c(2, 3), c(2, 2));
+    expect(northWest).toBeLessThan(0);
+    expect(northWest).toBeGreaterThan(-Math.PI / 2);
   });
 });

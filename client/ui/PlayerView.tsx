@@ -1,7 +1,9 @@
 import { useState } from 'react';
+import type { CombatEvent } from '@shared/combat';
 import type { Cell } from '@shared/grid';
 import type { JoinedGame } from '../net/transport';
 import { CombatPanel } from './CombatPanel';
+import { DiceRollAnimation } from './DiceRollAnimation';
 import { LogPanel } from './LogPanel';
 import { MapViewer } from './MapViewer';
 import { Players } from './Players';
@@ -27,9 +29,10 @@ interface Props {
   readonly code: string;
   readonly error: string | null;
   readonly focus: { readonly cell: Cell; readonly key: number } | null;
+  readonly combatEvents: { readonly events: readonly CombatEvent[]; readonly key: number } | null;
 }
 
-export function PlayerView({ game, code, error, focus }: Props) {
+export function PlayerView({ game, code, error, focus, combatEvents }: Props) {
   const { session } = game;
   const state = session.state;
   const [localError, setLocalError] = useState<string | null>(null);
@@ -46,6 +49,12 @@ export function PlayerView({ game, code, error, focus }: Props) {
 
   return (
     <div className="page">
+      {state && (
+        <DiceRollAnimation
+          log={state.log}
+          nameOf={(id) => (id === 'dm' ? state.dmTitle : (state.players.find((player) => player.id === id)?.name ?? id))}
+        />
+      )}
       <header className={`card status ${session.status}`}>
         <p data-testid="status">{statusText(game, code)}</p>
         {state && (
@@ -58,7 +67,15 @@ export function PlayerView({ game, code, error, focus }: Props) {
       {state && (
         <section className="card">
           <h2>Map</h2>
-          <MapViewer map={state.map} focus={focus} />
+          <MapViewer
+            map={state.map}
+            focus={focus}
+            combat={state.combat}
+            system={state.system}
+            combatEvents={combatEvents}
+            canControl={(id) => session.status === 'connected' && session.canControl(id)}
+            act={(action) => session.act(action)}
+          />
         </section>
       )}
 
@@ -71,11 +88,7 @@ export function PlayerView({ game, code, error, focus }: Props) {
 
           <section className="card">
             <h2>Fight</h2>
-            <CombatPanel
-              state={state}
-              canAct={(id) => session.status === 'connected' && session.canControl(id)}
-              onAction={(action) => session.act(action)}
-            />
+            <CombatPanel state={state} />
           </section>
 
           <section className="card">
