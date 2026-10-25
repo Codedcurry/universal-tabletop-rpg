@@ -17,7 +17,7 @@ import type { CameraCommand, CameraView } from '@shared/camera';
 import type { StylePack } from '../style/stylePack';
 import type { CombatEvent, CombatState } from '@shared/combat';
 import type { GameSystem } from '@shared/system';
-import { type AnimationSpeed, timingFor } from '@shared/anim';
+import { type AnimationSpeed, type Timeline, timingFor } from '@shared/anim';
 import { type GraphicsQuality, SlowFrameDetector, effectsFor } from '@shared/graphics';
 import { CameraRig } from './CameraRig';
 import { SceneEffects } from './SceneEffects';
@@ -302,10 +302,11 @@ export class WorldView {
   }
 
   /** Shows the fight; with `events`, creatures act out the action that produced it. */
-  setCombat(combat: CombatState | null, system: GameSystem | null, events: readonly CombatEvent[] | null): void {
-    this.tokens.setCombat(combat, system, events, performance.now());
+  setCombat(combat: CombatState | null, system: GameSystem | null, events: readonly CombatEvent[] | null): Timeline | null {
+    const timeline = this.tokens.setCombat(combat, system, events, performance.now());
     this.markActive();
     this.invalidate();
+    return timeline;
   }
 
   /** Creatures the current ability can target: their name tags become buttons. */

@@ -18,6 +18,7 @@ import {
   DEFAULT_TIMING,
   type FloatingText,
   type Pose,
+  type Timeline,
   proceduralPose,
   resolveClip,
   scheduleCombatEvents,
@@ -169,7 +170,8 @@ export class TokenLayer {
    * Shows a new combat state. With `events` (the action that produced it),
    * creatures act it out on the timeline; without, they just appear in place.
    */
-  setCombat(combat: CombatState | null, system: GameSystem | null, events: readonly CombatEvent[] | null, now: number): void {
+  /** Returns the action's animation timeline, if it acted one out (for its sounds). */
+  setCombat(combat: CombatState | null, system: GameSystem | null, events: readonly CombatEvent[] | null, now: number): Timeline | null {
     this.combat = combat;
     const present = new Set(Object.keys(combat?.combatants ?? {}));
     for (const [id, token] of this.tokens) {
@@ -177,7 +179,7 @@ export class TokenLayer {
     }
     if (!combat || !system) {
       this.activeRing.setEnabled(false);
-      return;
+      return null;
     }
 
     const timeline = events
@@ -218,6 +220,7 @@ export class TokenLayer {
     }
     for (const text of timeline?.texts ?? []) this.float(text, now);
     this.markActive();
+    return timeline;
   }
 
   /** Points out the creature whose turn it is: arrow and highlighted name tag (the ring follows in update). */

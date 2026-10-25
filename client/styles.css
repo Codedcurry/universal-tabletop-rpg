@@ -1326,3 +1326,7 @@ button.danger {
   padding: 0 12px;
   font-size: 14px;
 }
+.display-settings-panel .volume input[type='range'] {
+  width: 100%;
+  accent-color: var(--accent);
+}

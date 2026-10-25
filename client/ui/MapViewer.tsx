@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { CombatAction, CombatEvent, CombatState } from '@shared/combat';
 import type { Cell } from '@shared/grid';
 import { type MapData, createWorldMap } from '@shared/map';
 import type { GameSystem } from '@shared/system';
+import { sounds } from '../audio/soundEngine';
 import { CombatHud } from './CombatHud';
 import { useCombatPlay } from './useCombatPlay';
 import { useFog } from './useFog';
@@ -26,6 +27,11 @@ export function MapViewer({ map, focus = null, combat, system, combatEvents, fog
   const [hovered, setHovered] = useState<Cell | null>(null);
   const world = useMemo(() => (map ? createWorldMap(map) : null), [map]);
   const play = useCombatPlay({ combat, system, map, canControl, act });
+  // A chime when one of this player's creatures gets its turn.
+  const myTurn = play.actorId;
+  useEffect(() => {
+    if (myTurn) sounds.play('yourTurn');
+  }, [myTurn]);
   const controlled = Object.keys(combat?.combatants ?? {}).filter(canControl);
   const { fog, hidden } = useFog(world, combat, fogOfWar, controlled);
   if (!map || !world) return <p className="muted">The DM hasn't made a map yet.</p>;

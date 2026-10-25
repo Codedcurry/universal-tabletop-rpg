@@ -10,6 +10,7 @@ import { Home } from './ui/Home';
 import { PlayerView } from './ui/PlayerView';
 import { useDisplaySettings } from './ui/displaySettings';
 import { useWakeLock } from './ui/useWakeLock';
+import { sounds } from './audio/soundEngine';
 
 type View =
   | { readonly kind: 'home' }
@@ -26,6 +27,15 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [focus, setFocus] = useState<{ cell: Cell; key: number } | null>(null);
   // The latest combat action, which the map acts out; `key` makes each one play once.
+  // A soft click for every button press (the sound engine stays quiet with effects off).
+  useEffect(() => {
+    const onClick = (event: MouseEvent) => {
+      if ((event.target as HTMLElement | null)?.closest('button, [role="tab"]')) sounds.play('click');
+    };
+    document.addEventListener('click', onClick, true);
+    return () => document.removeEventListener('click', onClick, true);
+  }, []);
+
   // In a game, keep the screen awake (unless turned off under ⚙ on the map).
   const { keepAwake } = useDisplaySettings();
   useWakeLock(keepAwake && view.kind !== 'home');

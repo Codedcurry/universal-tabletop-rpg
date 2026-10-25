@@ -42,7 +42,7 @@ export function DisplaySettingsMenu({ onGraphicsPicked }: { onGraphicsPicked(qua
         ref={button}
         type="button"
         aria-label="Display settings"
-        title="Graphics, animations, screen"
+        title="Graphics, animations, sound, screen"
         aria-expanded={open}
         aria-controls={panelId}
         onClick={() => setOpen(!open)}
@@ -81,6 +81,28 @@ export function DisplaySettingsMenu({ onGraphicsPicked }: { onGraphicsPicked(qua
               </option>
             ))}
           </select>
+        </label>
+        <label className="volume">
+          <span>Sound effects</span>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={5}
+            value={settings.effectsVolume}
+            onChange={(event) => setDisplaySetting('effectsVolume', Number(event.target.value))}
+          />
+        </label>
+        <label className="volume" title="Calm background music; 0 turns it off">
+          <span>Music</span>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={5}
+            value={settings.musicVolume}
+            onChange={(event) => setDisplaySetting('musicVolume', Number(event.target.value))}
+          />
         </label>
         <label className="check" title="Stops the screen dimming and locking while you're in a game">
           <input

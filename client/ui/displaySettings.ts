@@ -11,10 +11,21 @@ export interface DisplaySettings {
   readonly graphics: GraphicsQuality;
   readonly combatSpeed: AnimationSpeed;
   readonly keepAwake: boolean;
+  /** Sound effects and background music volumes, 0 (off) to 100. */
+  readonly effectsVolume: number;
+  readonly musicVolume: number;
 }
 
 const SPEED_KEY = 'ttrpg.combatSpeed';
 const AWAKE_KEY = 'ttrpg.keepAwake';
+const EFFECTS_KEY = 'ttrpg.effectsVolume';
+const MUSIC_KEY = 'ttrpg.musicVolume';
+
+/** A saved volume (0 to 100), or the default. */
+function volume(saved: string | null, fallback: number): number {
+  const value = saved === null ? Number.NaN : Number(saved);
+  return Number.isFinite(value) ? Math.min(100, Math.max(0, Math.round(value))) : fallback;
+}
 
 /** Whether this device asks for reduced motion (an accessibility setting). */
 export function prefersReducedMotion(): boolean {
@@ -47,6 +58,9 @@ function load(): DisplaySettings {
     graphics: loadGraphicsQuality(),
     combatSpeed: ANIMATION_SPEEDS.find((entry) => entry === speed) ?? defaultAnimationSpeed(prefersReducedMotion()),
     keepAwake: read(AWAKE_KEY) !== 'false',
+    // Effects on, music off until someone turns it up.
+    effectsVolume: volume(read(EFFECTS_KEY), 60),
+    musicVolume: volume(read(MUSIC_KEY), 0),
   };
 }
 
@@ -58,7 +72,20 @@ export function setDisplaySetting<K extends keyof DisplaySettings>(key: K, value
   if (key === 'graphics') saveGraphicsQuality(value as GraphicsQuality);
   if (key === 'combatSpeed') write(SPEED_KEY, value as AnimationSpeed);
   if (key === 'keepAwake') write(AWAKE_KEY, String(value));
+  if (key === 'effectsVolume') write(EFFECTS_KEY, String(value));
+  if (key === 'musicVolume') write(MUSIC_KEY, String(value));
   for (const listener of listeners) listener();
+}
+
+/** The settings now, for code outside React (the sound engine). */
+export function displaySettings(): DisplaySettings {
+  return current;
+}
+
+/** Calls `listener` whenever a setting changes; returns a function that stops it. */
+export function onDisplaySettingsChange(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
 }
 
 export function useDisplaySettings(): DisplaySettings {

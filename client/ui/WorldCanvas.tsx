@@ -7,6 +7,8 @@ import type { Cell } from '@shared/grid';
 import { type MapData, type WorldMap, objectInfo } from '@shared/map';
 import { type HighlightKind, type TilePointer, WorldView } from '../render/WorldView';
 import { placeholderStyle } from '../style/stylePack';
+import { combatSounds } from '@shared/audio';
+import { sounds } from '../audio/soundEngine';
 import { DisplaySettingsMenu } from './DisplaySettingsMenu';
 import type { Fog } from './useFog';
 import { setDisplaySetting, useDisplaySettings } from './displaySettings';
@@ -138,7 +140,9 @@ export function WorldCanvas(props: Props) {
   useEffect(() => {
     const fresh = combatEvents && combatEvents.key !== playedKey.current ? combatEvents : null;
     if (fresh) playedKey.current = fresh.key;
-    viewRef.current?.setCombat(combat, system, fresh?.events ?? null);
+    const timeline = viewRef.current?.setCombat(combat, system, fresh?.events ?? null);
+    // The action's sounds, timed to its animation.
+    if (timeline) sounds.playAll(combatSounds(timeline));
   }, [combat, system, combatEvents, map]);
   // After setCombat, so new creatures are hidden too.
   useEffect(() => viewRef.current?.setFog(fog, hiddenTokens), [fog, hiddenTokens, map, combat]);

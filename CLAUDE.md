@@ -114,11 +114,15 @@ A PC- and mobile-friendly take on Tabletop Simulator, built specifically for tab
 - DM notes: `HostSession.setNote(cell, text)` / `notes()`, kept only on the host, never published (a test checks no message to players mentions them). The Map tab's Notes tool opens a note for a tile; noted tiles are tinted violet on the DM's map and the note shows in the tile readout.
 - Token permissions: "Players control their own characters" and the creature editor's "Controlled by" (see DM tools).
 
+### Sound (step 11)
+- `shared/audio`: `combatSounds(timeline)` times sounds to the animation (a step per tile walked, swing/shoot/spell/item as the attack starts, hit/miss/block at impact, downed, heal, level-up, one victory fanfare); `diceSounds(plan)` (rattle, a clack per die as it lands, a sting for a natural max or 1; silent with dice animation off); `musicScore(seed)`: a calm C-major loop (pad chords from a set of progressions, bass roots, a pentatonic melody, one note at a time), tested to stay in key.
+- `client/audio/soundEngine.ts`: the placeholder sound pack, every sound synthesized with Web Audio (oscillators, filtered noise), so there are no files to load or credit. It wakes on the first press or key (browser rule), plays background music with a look-ahead scheduler, and reads the ⚙ volumes (Sound effects, default 60; Music, default 0 = off). Buttons and tabs click softly; a player hears a chime when their turn comes.
+
 ### Hosting
 - GitHub Pages: `.github/workflows/pages.yml` builds with `BASE_PATH=/<repo>/` (vite `base`) and deploys on every push to master: https://codedcurry.github.io/universal-tabletop-rpg/ (the repo is public; Pages source is "GitHub Actions").
 
 ### Known gaps (planned, not built yet)
-- Saved favorite rolls per character (optional in the spec) are not built yet. Dice and combat sounds are step 11.
+- Saved favorite rolls per character (optional in the spec) are not built yet.
 - The DM's session lives in memory: reloading the DM's page ends the game (storage is step 12). Use Export to keep a map. DM notes are lost on reload too.
 - No TURN relay configured yet; players on strict networks (some mobile carriers) may fail to connect. See `.env.example`.
 - House rules (build step 15). The DM can edit creatures directly (see DM tools), but rules themselves are not overridable yet.

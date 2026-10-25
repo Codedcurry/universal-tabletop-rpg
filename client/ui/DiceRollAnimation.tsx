@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
+import { diceSounds } from '@shared/audio';
 import { type RollPlan, planRollAnimation } from '@shared/dice';
+import { sounds } from '../audio/soundEngine';
 import type { LogEntry } from '@shared/net';
 import { useDiceSpeed } from './diceSpeed';
 
@@ -44,7 +46,9 @@ export function DiceRollAnimation({ log, nameOf }: { log: readonly LogEntry[]; n
     setQueue(rest);
     vibrated.current = new Set();
     setElapsed(0);
-    setShowing({ entry: next, plan: planRollAnimation(next.result, speed), startedAt: performance.now() });
+    const plan = planRollAnimation(next.result, speed);
+    sounds.playAll(diceSounds(plan));
+    setShowing({ entry: next, plan, startedAt: performance.now() });
   }, [queue, showing, speed]);
 
   // Drive the animation frame by frame until it ends.
