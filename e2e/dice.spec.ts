@@ -132,3 +132,27 @@ test('the dice buttons stay inside the dice panel at any window width', async ({
     }
   }
 });
+
+test('the dice box can be opened any time, and stays open while pinned', async ({ browser }) => {
+  const { ana } = await table(browser);
+  const panel = dicePanel(ana);
+  const toggle = panel.getByRole('button', { name: 'Dice box' });
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(animation(ana)).toBeVisible();
+  await expect(animation(ana)).toContainText('No rolls yet');
+
+  await panel.getByRole('button', { name: 'Add d20' }).click();
+  await panel.getByRole('button', { name: 'Roll', exact: true }).click();
+  await expect(animation(ana).getByTestId('roll-total')).toHaveText(await lastRollTotal(ana));
+  await ana.waitForTimeout(3000); // well past when it would close by itself
+  await expect(animation(ana)).toBeVisible();
+
+  // Closing it unpins it; reopening shows the last roll, at rest.
+  await animation(ana).getByRole('button', { name: 'Close dice' }).click();
+  await expect(animation(ana)).toBeHidden();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await toggle.click();
+  await expect(animation(ana).getByTestId('roll-total')).toHaveText(await lastRollTotal(ana));
+});

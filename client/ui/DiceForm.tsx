@@ -11,7 +11,7 @@ import {
   rollSlots,
   trayNotation,
 } from '@shared/dice';
-import { setDiceSpeed, useDiceSpeed } from './diceSpeed';
+import { setDiceBoxPinned, setDiceSpeed, useDiceBoxPinned, useDiceSpeed } from './diceSpeed';
 
 // The dice panel: tap dice into a tray (or type notation for anything
 // fancier), roll, re-roll, and choose how long the animation plays.
@@ -83,6 +83,7 @@ export function DiceForm({ physicalDice, canHideRolls, onRoll }: Props) {
   const [tray, setTray] = useState<Tray>({});
   const [lastNotation, setLastNotation] = useState<string | null>(null);
   const speed = useDiceSpeed();
+  const pinned = useDiceBoxPinned();
   const helpId = useId();
 
   function addDie(die: TrayDie) {
@@ -176,6 +177,14 @@ export function DiceForm({ physicalDice, canHideRolls, onRoll }: Props) {
         </button>
         <button type="button" onClick={reroll} disabled={!lastNotation || physicalDice} title={lastNotation ?? undefined}>
           Re-roll
+        </button>
+        <button
+          type="button"
+          aria-pressed={pinned}
+          title="Keep the dice box open: see the last roll, and watch new ones land"
+          onClick={() => setDiceBoxPinned(!pinned)}
+        >
+          Dice box
         </button>
         <label>
           <span>Dice animation</span>

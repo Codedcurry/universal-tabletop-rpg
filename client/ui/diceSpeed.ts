@@ -41,3 +41,34 @@ export function useDiceSpeed(): RollSpeed {
     () => speed,
   );
 }
+
+// Whether the dice box stays open (pinned) instead of closing after each roll; per device too.
+const PINNED_KEY = 'ttrpg.diceBoxPinned';
+let pinned = (() => {
+  try {
+    return localStorage.getItem(PINNED_KEY) === 'true';
+  } catch {
+    return false;
+  }
+})();
+const pinListeners = new Set<() => void>();
+
+export function setDiceBoxPinned(next: boolean): void {
+  pinned = next;
+  try {
+    localStorage.setItem(PINNED_KEY, String(next));
+  } catch {
+    // Not remembered; it still applies until the page closes.
+  }
+  for (const listener of pinListeners) listener();
+}
+
+export function useDiceBoxPinned(): boolean {
+  return useSyncExternalStore(
+    (listener) => {
+      pinListeners.add(listener);
+      return () => pinListeners.delete(listener);
+    },
+    () => pinned,
+  );
+}

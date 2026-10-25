@@ -1336,3 +1336,30 @@ button.danger {
   width: 100%;
   accent-color: var(--accent);
 }
+
+/* Pinned open (the Dice box button): docked in a corner, out of the way of the dice panel; drag by the header. */
+.dice-tray.pinned {
+  left: 16px;
+  right: auto;
+  top: auto;
+  bottom: 16px;
+  width: min(300px, calc(100vw - 32px));
+  height: min(420px, 60vh);
+  transform: none;
+  animation: none;
+  cursor: default;
+}
+.dice-tray.pinned .dice-tray-head {
+  cursor: grab;
+  touch-action: none;
+}
+@media (max-width: 700px) {
+  .dice-tray.pinned {
+    left: 8px;
+    right: 8px;
+    top: 8px;
+    bottom: auto;
+    width: auto;
+    height: 40vh;
+  }
+}
