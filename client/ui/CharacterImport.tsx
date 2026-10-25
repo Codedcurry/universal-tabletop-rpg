@@ -5,6 +5,7 @@ import type { HostSession } from '@shared/net';
 import { type CharacterArt, type CharacterSource, MAX_IMAGE_CHARS, MAX_IMAGE_SIDE } from '@shared/style/art';
 import { DEFAULT_FPS, SHEET_DIRECTIONS, type SheetLayout, guessFrameSize, portraitRect, sliceSheet } from '@shared/style/sheet';
 import { FramePicker, type PickerStart } from './FramePicker';
+import { OnePicture, type Picture, loadPicture } from './OnePicture';
 import { type Crop, Preview, type Sheet, SpeedField, TokenEditor, loadSheet, loadSheetUrl, makeToken, withSpeeds } from './spritePreview';
 
 // Importing a character's sprite sheet in the Art tab: choose who it's for
@@ -35,6 +36,8 @@ export function CharacterImport({ session, targets }: { session: HostSession; ta
   const [sheet, setSheet] = useState<Sheet | null>(null);
   /** A sheet open in the frame picker: a new one for the chosen character, or one being edited. */
   const [picking, setPicking] = useState<{ sheet: Sheet; key: string; name: string; start?: PickerStart } | null>(null);
+  /** A picture being made into a character. */
+  const [making, setMaking] = useState<{ picture: Picture; key: string; name: string } | null>(null);
   const [frameSize, setFrameSize] = useState(32);
   const [clip, setClip] = useState<Clip>('idle');
   const [direction, setDirection] = useState<SpriteDirection>('down');
@@ -90,7 +93,23 @@ export function CharacterImport({ session, targets }: { session: HostSession; ta
       session.setCharacterArt(key, character, source);
       setSheet(null);
       setPicking(null);
+      setMaking(null);
       setError(null);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
+  async function choosePicture(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || !target) return;
+    try {
+      const picture = await loadPicture(file);
+      setSheet(null);
+      setPicking(null);
+      setError(null);
+      setMaking({ picture, key: target.key, name: target.name });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
@@ -117,7 +136,7 @@ export function CharacterImport({ session, targets }: { session: HostSession; ta
     <div className="character-import">
       <p className="muted">
         A sprite sheet: square frames, 4 rows per animation (facing down, left, right, up), idle first. Only idle is needed: missing animations are acted out with simple
-        motions. Any other sheet (sprites of any size, anywhere): pick its frames yourself.
+        motions. Any other sheet (sprites of any size, anywhere): pick its frames yourself. Or make one from any picture: it becomes pixel art.
       </p>
       <div className="row">
         <label className="grow">
@@ -143,6 +162,10 @@ export function CharacterImport({ session, targets }: { session: HostSession; ta
             disabled={!target}
             onChange={(event) => void choose(event, 'pick')}
           />
+        </label>
+        <label className="file-button">
+          <span>Make from one picture</span>
+          <input type="file" accept="image/*" aria-label="Make from one picture" disabled={!target} onChange={(event) => void choosePicture(event)} />
         </label>
       </div>
 
@@ -231,6 +254,15 @@ export function CharacterImport({ session, targets }: { session: HostSession; ta
           {...(picking.start ? { start: picking.start } : {})}
           onUse={(character, source) => apply(picking.key, character, source)}
           onCancel={() => setPicking(null)}
+        />
+      )}
+      {making && (
+        <OnePicture
+          key={`${making.key}:${making.picture.name}`}
+          front={making.picture}
+          name={making.name}
+          onUse={(character) => apply(making.key, character)}
+          onCancel={() => setMaking(null)}
         />
       )}
       {error && (

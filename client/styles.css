@@ -1575,3 +1575,16 @@ button.danger {
   gap: 4px;
   align-items: center;
 }
+/* Making a character from one picture: the pixel art, shown big and crisp. */
+.pixel-art {
+  image-rendering: pixelated;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: repeating-conic-gradient(#2a2539 0% 25%, #221e2e 0% 50%) 50% / 16px 16px;
+}
+.one-picture {
+  flex-wrap: wrap;
+  gap: 12px;
+}

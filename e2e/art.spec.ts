@@ -257,3 +257,69 @@ test('the DM picks frames from a free-form sheet in a pop-up window, by box or b
   await picker.getByRole('combobox', { name: /^Animation/ }).selectOption('victory');
   await expect(frames).toHaveCount(1);
 });
+
+/** A picture, like a drawing or a photo cut-out: a figure on a plain white background. */
+async function drawing(page: Page, color: string) {
+  const dataUrl = await page.evaluate((fill) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 120;
+    canvas.height = 200;
+    const ctx = canvas.getContext('2d')!;
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, 120, 200);
+    ctx.fillStyle = fill;
+    ctx.fillRect(30, 60, 60, 120); // body
+    ctx.fillStyle = '#f2c9a0';
+    ctx.beginPath();
+    ctx.arc(60, 40, 24, 0, Math.PI * 2); // head
+    ctx.fill();
+    ctx.fillStyle = '#333';
+    ctx.fillRect(34, 180, 18, 16); // legs
+    ctx.fillRect(68, 180, 18, 16);
+    return canvas.toDataURL('image/png');
+  }, color);
+  return { name: 'hero.png', mimeType: 'image/png', buffer: Buffer.from(dataUrl.split(',')[1]!, 'base64') };
+}
+
+test('the DM makes a character from one picture: pixel art, a back view, and a token', async ({ browser }) => {
+  const { dm, ana } = await table(browser);
+  await dm.getByRole('tab', { name: 'Encounter' }).click();
+  const encounter = dm.getByRole('tabpanel', { name: 'Encounter' });
+  await encounter.getByLabel('Add').selectOption({ label: 'Goblin' });
+  await encounter.getByRole('button', { name: 'Place on map' }).click();
+  const box = (await dm.getByTestId('world-canvas').boundingBox())!;
+  await dm.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(ana.getByTestId('token').filter({ hasText: 'Goblin' })).toHaveAttribute('data-art', 'pack');
+
+  await dm.getByRole('tab', { name: 'Art' }).click();
+  await dm.getByRole('tab', { name: 'Characters' }).click();
+  const art = dm.getByRole('tabpanel', { name: 'Characters' });
+  await art.getByLabel('Character').selectOption({ label: 'Goblin (every goblin)' });
+  await art.getByLabel('Make from one picture').setInputFiles(await drawing(dm, '#3a6ad0'));
+
+  const maker = dm.getByRole('dialog', { name: 'Make a character' });
+  const front = maker.getByRole('img', { name: 'Pixel art, front' });
+  await expect(front).toBeVisible();
+  // 48 pixels tall by default; outlined, so 2 more.
+  await expect(front).toHaveAttribute('height', '50');
+  // The white background is gone: the corner is clear.
+  const corner = () => front.evaluate((canvas) => (canvas as HTMLCanvasElement).getContext('2d')!.getImageData(0, 0, 1, 1).data[3]);
+  expect(await corner()).toBe(0);
+  await maker.getByLabel(/^Height/).fill('32');
+  await expect(front).toHaveAttribute('height', '34');
+  await maker.getByLabel('Outline').uncheck();
+  await expect(front).toHaveAttribute('height', '32');
+
+  await maker.getByLabel('Back view picture').setInputFiles(await drawing(dm, '#2a4a90'));
+  await expect(maker.getByRole('img', { name: 'Pixel art, back' })).toBeVisible();
+  await maker.getByRole('combobox', { name: /^Facing/ }).selectOption('up');
+  await expect(maker.getByRole('img', { name: 'Preview of the idle animation facing up' })).toBeVisible();
+  await expect(maker.getByRole('img', { name: 'Round token' })).toBeVisible();
+
+  await maker.getByRole('button', { name: 'Use for Goblin' }).click();
+  await expect(maker).toHaveCount(0);
+  await expect(ana.getByTestId('token').filter({ hasText: 'Goblin' })).toHaveAttribute('data-art', 'custom');
+  // Like any character, it can be edited in the frame picker.
+  await art.getByRole('button', { name: 'Edit goblin art' }).click();
+  await expect(dm.getByRole('dialog', { name: 'Pick frames' }).getByRole('button', { name: /^Remove frame/ })).toHaveCount(2);
+});

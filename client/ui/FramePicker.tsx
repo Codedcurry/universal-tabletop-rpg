@@ -4,7 +4,7 @@ import { CLIPS, type Clip } from '@shared/anim';
 import { type CharacterArt, type CharacterSource, type ImageAsset, MAX_IMAGE_CHARS, MAX_IMAGE_SIDE } from '@shared/style/art';
 import { type Box, type FrameCounts, VIEWS, type View, assembleLayout, clearBackground, findSprites, packRows, picksFromLayout, planCells, sheetRows } from '@shared/style/frames';
 import { DEFAULT_FPS, type SheetLayout } from '@shared/style/sheet';
-import { type Crop, Preview, type Sheet, SpeedField, TokenEditor, makeToken, withSpeeds } from './spritePreview';
+import { type Crop, Preview, type Sheet, SpeedField, TokenEditor, headCrop, makeToken, withSpeeds } from './spritePreview';
 
 // Building a character from any sprite sheet (sprites of any size, anywhere,
 // one view, like a classic battle sheet), in a window that pops up when the
@@ -77,12 +77,6 @@ function compose(clean: HTMLCanvasElement, pixels: ImageData, sprites: readonly 
   return { layout, image: { dataUrl, width: canvas.width, height: canvas.height }, canvas };
 }
 
-/** A token's starting framing for a sprite: the top of it, where the head usually is. */
-function headCrop(box: Box): Crop {
-  const size = Math.max(4, Math.round(Math.min(box.width, box.height) * 0.9));
-  return { x: box.x + box.width / 2 - size / 2, y: box.y - size * 0.05, size };
-}
-
 /** The box between two corners. */
 function between(a: { x: number; y: number }, b: { x: number; y: number }): Box {
   return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), width: Math.abs(a.x - b.x), height: Math.abs(a.y - b.y) };
@@ -116,7 +110,8 @@ export function FramePicker({
   const [begun] = useState(() => start?.source ?? (start?.layout ? { ...picksFromLayout(start.layout, sprites), token: null } : null));
   const [picks, setPicks] = useState<Picks>(begun?.picks ?? {});
   const [clip, setClip] = useState<Clip>('idle');
-  const [view, setView] = useState<View>('side');
+  // Editing: open on the view that has the idle frames.
+  const [view, setView] = useState<View>(() => VIEWS.find((entry) => (begun?.picks[entry]?.idle?.length ?? 0) > 0) ?? 'side');
   const [faces, setFaces] = useState<'left' | 'right'>(begun?.faces ?? 'left');
   const [speeds, setSpeeds] = useState<Partial<Record<Clip, number>>>(start?.layout?.fps ?? {});
   /** The token's sprite and framing, once the DM chooses; until then, the first idle frame's head. */

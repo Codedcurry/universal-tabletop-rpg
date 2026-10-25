@@ -20,6 +20,8 @@ export interface Box {
 
 /** Pieces this close (in pixels) are one sprite: a held weapon, a limb, an effect. */
 const JOIN_GAP = 2;
+/** Room left between frames on an assembled sheet: more than JOIN_GAP, so neighbours stay apart. */
+export const FRAME_GAP = JOIN_GAP;
 /** Fewer drawn pixels than this is a stray speck, not a sprite. */
 const MIN_PIXELS = 6;
 
@@ -140,7 +142,8 @@ export function planCells(image: Pixels, frames: readonly Box[]): { size: number
   const feet = frames.map((box) => footAnchor(image, box));
   const reach = Math.max(1, ...frames.map((box, index) => Math.max(feet[index]!.x - box.x, box.x + box.width - feet[index]!.x)));
   const tallest = Math.max(1, ...frames.map((box) => box.height));
-  const size = Math.ceil(Math.max(reach * 2, tallest) / 4) * 4;
+  // A clear gap of at least 2 pixels between neighbouring frames, so the sheet's sprites can be found apart again (to edit it).
+  const size = Math.ceil((Math.max(reach * 2, tallest) + FRAME_GAP) / 4) * 4;
   return {
     size,
     placements: frames.map((box, index) => ({ dx: size / 2 - (feet[index]!.x - box.x), dy: size - box.height })),

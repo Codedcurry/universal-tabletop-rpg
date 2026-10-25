@@ -82,6 +82,12 @@ export function makeToken(source: CanvasImageSource, crop: Crop): ImageAsset {
   return { dataUrl: canvas.toDataURL('image/png'), width: TOKEN_SIZE, height: TOKEN_SIZE };
 }
 
+/** A token's starting framing for a sprite: the top of it, where the head usually is. */
+export function headCrop(box: { readonly x: number; readonly y: number; readonly width: number; readonly height: number }): Crop {
+  const size = Math.max(4, Math.round(Math.min(box.width, box.height) * 0.9));
+  return { x: box.x + box.width / 2 - size / 2, y: box.y - size * 0.05, size };
+}
+
 /** The same crop, zoomed to a new size around its middle. */
 function zoomed(crop: Crop, size: number): Crop {
   return { x: crop.x + (crop.size - size) / 2, y: crop.y + (crop.size - size) / 2, size };
