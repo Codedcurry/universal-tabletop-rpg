@@ -24,3 +24,17 @@ export {
   removeFromTray,
   trayNotation,
 } from './animation';
+export {
+  DIE_SHAPES,
+  type DieGeometry,
+  type DieShape,
+  type Quat,
+  type Vec3,
+  dieGeometry,
+  dieShapeFor,
+  faceNormal,
+  relabel,
+  rotate,
+  upwardFace,
+} from './polyhedra';
+export { BOX_LIMIT, type BoxPiece, boxPieces, faceLabels } from './box';

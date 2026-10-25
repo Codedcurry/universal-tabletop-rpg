@@ -114,6 +114,11 @@ A PC- and mobile-friendly take on Tabletop Simulator, built specifically for tab
 - DM notes: `HostSession.setNote(cell, text)` / `notes()`, kept only on the host, never published (a test checks no message to players mentions them). The Map tab's Notes tool opens a note for a tile; noted tiles are tinted violet on the DM's map and the note shows in the tile readout.
 - Token permissions: "Players control their own characters" and the creature editor's "Controlled by" (see DM tools).
 
+### Dice box
+- `shared/dice/polyhedra.ts`: dice geometry (corner points; faces found by a brute-force convex hull), values with opposite faces adding to sides + 1, `upwardFace` (a d4 reads its top corner), `relabel` (swap two labels). `shared/dice/box.ts`: `boxPieces` (which shapes to throw: a d100 is tens + ones d10s, an odd-sided die is a cube with its value on every face, at most `BOX_LIMIT` 20 thrown, the rest counted) and `faceLabels`.
+- `client/dice/simulate.ts` (cannon-es): a seeded throw into the walled, lidded `TRAY`, recorded at 60 frames a second with collision moments (for the clacks). Each piece stops for good once still and lying flat; one left leaning is nudged toward the middle (up to 5 times), and anything still leaning at the end tips onto its nearest face in a short closing step. At most 4 s (typically 1.5-3.5 s).
+- `client/render/DiceView.ts` draws the tray and the dice (flat-shaded, numbers on a per-die texture after relabelling) and plays the recording at the dice-speed setting (Off: dice already at rest). `client/ui/DiceBox.tsx` replaces the old 2D animation: same queue, tap to skip, total in the header, crit glow and sting; rendered into the page body so nothing covers it.
+
 ### Sound (step 11)
 - `shared/audio`: `combatSounds(timeline)` times sounds to the animation (a step per tile walked, swing/shoot/spell/item as the attack starts, hit/miss/block at impact, downed, heal, level-up, one victory fanfare); `diceSounds(plan)` (rattle, a clack per die as it lands, a sting for a natural max or 1; silent with dice animation off); `musicScore(seed)`: a calm C-major loop (pad chords from a set of progressions, bass roots, a pentatonic melody, one note at a time), tested to stay in key.
 - `client/audio/soundEngine.ts`: the placeholder sound pack, every sound synthesized with Web Audio (oscillators, filtered noise), so there are no files to load or credit. It wakes on the first press or key (browser rule), plays background music with a look-ahead scheduler, and reads the ⚙ volumes (Sound effects, default 60; Music, default 0 = off). Buttons and tabs click softly; a player hears a chime when their turn comes.
@@ -227,8 +232,8 @@ This means every character can perform every action, even if only idle frames we
 - Invalid input throws `DiceNotationError` with a readable message and the character position.
 
 ### Roll animation
-- Animated dice tumble across the screen and land on the result, styled to match the active style pack. Coins flip and land heads/tails.
-- **Not a physics simulation:** the result is decided first, then the animation plays to land on that face. This keeps results fair and works on phones.
+- Real 3D dice (d4, d6, d8, d10, d12, d20, d100 as two d10s, coins) are thrown into a dice box (a felt tray with a wooden rim, like Owlbear Rodeo's) and tumble, bounce, and knock into each other. Coins flip and land heads/tails.
+- **The result is decided first; the physics never decides it.** Each throw is a physics simulation run ahead of time from a seed everyone shares (the same tumble for everyone), then the face that landed up is relabelled to show the result already decided by the secure roll. Results stay fair and the same for everyone; the simulation is cheap enough for phones.
 - Reduced/skip-animation option for low graphics mode or speed.
 
 ### Who rolls (DM setting, per session)

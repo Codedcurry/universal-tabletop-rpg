@@ -769,127 +769,133 @@ button[aria-expanded='true'] {
   align-items: end;
 }
 
-/* The roll animation: thrown over everything, tap to skip. */
-.dice-roll {
+/* The dice box: a wooden tray of 3D dice, over everything; tap to skip. */
+.dice-tray {
   position: fixed;
-  left: 50%;
-  top: 30%;
-  transform: translate(-50%, -50%);
-  z-index: 30;
-  min-width: min(360px, 92vw);
-  max-width: 92vw;
-  padding: 14px 18px 18px;
-  border-radius: 16px;
-  background: rgba(20, 18, 28, 0.94);
-  border: 1px solid var(--accent);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
-  text-align: center;
+  right: 16px;
+  top: 50%;
+  z-index: 1000;
+  width: min(340px, calc(100vw - 32px));
+  height: min(520px, 80vh);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+  overflow: hidden;
+  border: 6px solid #5a3a22;
+  border-radius: 14px;
+  background: #2a2522;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+  transform: translateY(-50%);
+  animation: dice-tray-in 0.18s ease-out;
   cursor: pointer;
 }
-.dice-roll-who {
-  margin: 0 0 10px;
-  color: var(--muted);
-  font-size: 14px;
+.dice-tray.big-max {
+  border-color: #d6a531;
+  box-shadow: 0 0 0 2px rgba(214, 165, 49, 0.5), 0 16px 40px rgba(0, 0, 0, 0.6);
 }
-.dice-roll-pieces {
+.dice-tray.big-min {
+  border-color: #9b3a3a;
+}
+.dice-tray-head {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 6px 6px 12px;
+  background: rgba(0, 0, 0, 0.35);
 }
-.piece {
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: 46px;
-  height: 46px;
-  border-radius: 10px;
-  background: #ece8f4;
-  color: #1a1526;
+.dice-tray-who {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  color: var(--muted);
+}
+.dice-tray-total {
+  font-size: 30px;
   font-weight: 800;
-  font-size: 20px;
-  box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.18);
+  line-height: 1;
+  color: var(--text);
+  animation: total-pop 0.25s ease-out;
 }
-.piece.coin {
-  border-radius: 50%;
-  background: var(--accent);
+.dice-tray.big-max .dice-tray-total {
+  color: #f2c94c;
 }
-.piece-sides {
+.dice-tray.big-min .dice-tray-total {
+  color: #ff8a80;
+}
+.dice-tray-close {
+  min-height: 36px;
+  min-width: 36px;
+  padding: 0;
+  font-size: 22px;
+  background: transparent;
+  border-color: transparent;
+}
+.dice-tray-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+.dice-tray-moment,
+.dice-tray-more {
   position: absolute;
-  bottom: 1px;
-  right: 4px;
-  font-size: 9px;
-  font-weight: 600;
-  opacity: 0.6;
+  left: 0;
+  right: 0;
+  margin: 0;
+  text-align: center;
+  pointer-events: none;
 }
-.piece.waiting {
-  opacity: 0;
-}
-.piece.tumbling {
-  animation: dice-tumble 0.32s linear infinite;
-}
-.piece.coin.tumbling {
-  animation: coin-spin 0.18s linear infinite;
-}
-.piece.landed {
-  animation: dice-settle 0.2s ease-out;
-}
-.piece.dropped.landed {
-  opacity: 0.35;
-}
-.piece.crit-max {
-  background: #ffe18a;
-  box-shadow: 0 0 18px 6px rgba(255, 210, 90, 0.85);
-}
-.piece.crit-min {
-  background: #ff9a8a;
-  box-shadow: 0 0 18px 6px rgba(255, 90, 70, 0.8);
-}
-.dice-roll-total {
-  margin: 12px 0 0;
-  font-size: 40px;
-  font-weight: 900;
-  color: var(--accent);
-  animation: total-pop 0.3s ease-out;
-}
-.dice-roll.big-max .dice-roll-total {
-  color: #ffe18a;
-  text-shadow: 0 0 18px rgba(255, 210, 90, 0.9);
-}
-.dice-roll.big-min .dice-roll-total {
-  color: #ff8a7a;
-}
-.dice-roll-moment {
-  margin: 4px 0 0;
+.dice-tray-moment {
+  bottom: 12px;
   font-weight: 700;
-  letter-spacing: 0.05em;
-  color: var(--accent);
+  color: #f2c94c;
+  text-shadow: 0 2px 4px #000;
 }
-@keyframes dice-tumble {
-  0% { transform: translateY(-6px) rotate(0deg); }
-  50% { transform: translateY(2px) rotate(180deg); }
-  100% { transform: translateY(-6px) rotate(360deg); }
+.dice-tray.big-min .dice-tray-moment {
+  color: #ff8a80;
 }
-@keyframes coin-spin {
-  0% { transform: scaleX(1); }
-  50% { transform: scaleX(0.1); }
-  100% { transform: scaleX(1); }
+.dice-tray-more {
+  top: 52px;
+  font-size: 13px;
+  color: var(--muted);
 }
-@keyframes dice-settle {
-  0% { transform: translateY(-8px) scale(1.08); }
-  60% { transform: translateY(2px) scale(0.97); }
-  100% { transform: none; }
+@keyframes dice-tray-in {
+  from {
+    opacity: 0;
+    transform: translateY(-50%) translateX(24px);
+  }
 }
 @keyframes total-pop {
-  0% { transform: scale(0.4); opacity: 0; }
-  70% { transform: scale(1.15); opacity: 1; }
-  100% { transform: scale(1); }
+  from {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+}
+/* On phones: a sheet from the bottom. */
+@media (max-width: 700px) {
+  .dice-tray {
+    left: 8px;
+    right: 8px;
+    top: auto;
+    bottom: 8px;
+    width: auto;
+    height: 55vh;
+    transform: none;
+    animation-name: dice-tray-up;
+  }
+  @keyframes dice-tray-up {
+    from {
+      opacity: 0;
+      transform: translateY(24px);
+    }
+  }
 }
 @media (prefers-reduced-motion: reduce) {
-  .piece.tumbling,
-  .piece.coin.tumbling,
-  .piece.landed,
-  .dice-roll-total {
+  .dice-tray,
+  .dice-tray-total {
     animation: none;
   }
 }

@@ -5,7 +5,7 @@ import type { RollMode } from '@shared/net';
 import { demoFight, demoMap, demoSystem } from '../demo';
 import type { HostedGame } from '../net/transport';
 import { CombatPanel } from './CombatPanel';
-import { DiceRollAnimation } from './DiceRollAnimation';
+import { DiceBox } from './DiceBox';
 import { EncounterPanel, type Placing } from './EncounterPanel';
 import { LogPanel } from './LogPanel';
 import { MapEditor } from './MapEditor';
@@ -124,7 +124,7 @@ export function HostView({ game, combatEvents }: Props) {
 
   return (
     <div className="page dm-page">
-      <DiceRollAnimation
+      <DiceBox
         log={state.log}
         nameOf={(id) => (id === 'dm' ? state.dmTitle : (state.players.find((player) => player.id === id)?.name ?? id))}
       />

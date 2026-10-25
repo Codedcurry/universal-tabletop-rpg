@@ -3,7 +3,7 @@ import type { CombatEvent } from '@shared/combat';
 import type { Cell } from '@shared/grid';
 import type { JoinedGame } from '../net/transport';
 import { CombatPanel } from './CombatPanel';
-import { DiceRollAnimation } from './DiceRollAnimation';
+import { DiceBox } from './DiceBox';
 import { LogPanel } from './LogPanel';
 import { MapViewer } from './MapViewer';
 import { Players } from './Players';
@@ -52,7 +52,7 @@ export function PlayerView({ game, code, error, focus, combatEvents }: Props) {
   return (
     <div className="page">
       {state && (
-        <DiceRollAnimation
+        <DiceBox
           log={state.log}
           nameOf={(id) => (id === 'dm' ? state.dmTitle : (state.players.find((player) => player.id === id)?.name ?? id))}
         />
