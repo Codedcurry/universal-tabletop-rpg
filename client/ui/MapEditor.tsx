@@ -651,6 +651,7 @@ export function MapEditor({ session, combatEvents, editing, toolsSlot, onMapClic
           <WorldCanvas
             map={map}
             notes={noteCells}
+            art={snapshot.art}
             editing={editing && touchEdits}
             highlight={editing ? preview : play.highlight}
             highlightKind={editing ? 'brush' : play.highlightKind}

@@ -4,6 +4,7 @@ import { type MapData, validateMapData } from '../map';
 import { type CreatureSheet, type GameSystem, validateGameSystem } from '../system';
 import { type LogEntry, MAX_NAME_LENGTH, type RollMode } from './protocol';
 import { normalizeRoomCode } from './room';
+import { type CustomArt, validateCustomArt } from '../style/art';
 
 /**
  * A saved game: everything the DM's side needs to carry on after a reload,
@@ -40,6 +41,8 @@ export interface SavedGame {
     readonly map: MapData | null;
     readonly combat: CombatState | null;
     readonly log: readonly LogEntry[];
+    /** The DM's own art (saves from before it existed have none). */
+    readonly art?: CustomArt;
   };
   readonly players: readonly SavedPlayer[];
   readonly notes: readonly { readonly cell: Cell; readonly text: string }[];
@@ -89,6 +92,10 @@ export function validateSavedGame(data: unknown): SavedGameValidation {
   }
   if (state.combat !== null && (!isObject(state.combat) || !Array.isArray(state.combat.order) || !isObject(state.combat.combatants))) {
     return fail('The fight is broken');
+  }
+  if (state.art !== undefined) {
+    const art = validateCustomArt(state.art);
+    if (!art.ok) return fail(`The art is broken: ${art.error}`);
   }
   if (!Array.isArray(state.log) || !state.log.every((entry) => isObject(entry) && typeof entry.seq === 'number' && typeof entry.kind === 'string')) {
     return fail('The log is broken');

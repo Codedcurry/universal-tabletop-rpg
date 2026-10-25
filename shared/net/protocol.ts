@@ -1,3 +1,4 @@
+import type { CustomArt } from '../style/art';
 import type { CombatAction, CombatEvent, CombatState } from '../combat';
 import type { RollResult } from '../dice';
 import type { MapPatch } from '../editor';
@@ -77,6 +78,8 @@ export interface SessionSnapshot {
   readonly playersControlOwn: boolean;
   /** Players see only what their creatures can see (see shared/vision). */
   readonly fogOfWar: boolean;
+  /** The DM's own art for the game, sent to everyone. */
+  readonly art: CustomArt;
   readonly players: readonly PublicPlayer[];
   readonly system: GameSystem | null;
   readonly map: MapData | null;
@@ -92,7 +95,9 @@ export type SessionUpdate =
   /** A live edit: just the changed tiles and walls. */
   | { readonly kind: 'mapPatch'; readonly patch: MapPatch }
   | { readonly kind: 'combat'; readonly combat: CombatState | null; readonly events: readonly CombatEvent[] }
-  | { readonly kind: 'log'; readonly entry: LogEntry };
+  | { readonly kind: 'log'; readonly entry: LogEntry }
+  /** The DM's own art for the game (tile textures). */
+  | { readonly kind: 'art'; readonly art: CustomArt };
 
 export type ClientMessage =
   | {

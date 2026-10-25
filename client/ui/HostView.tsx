@@ -4,6 +4,7 @@ import { type Cell, cellKey } from '@shared/grid';
 import type { RollMode } from '@shared/net';
 import { demoFight, demoMap, demoSystem } from '../demo';
 import type { HostedGame } from '../net/transport';
+import { ArtPanel } from './ArtPanel';
 import { CombatPanel } from './CombatPanel';
 import { DiceBox } from './DiceBox';
 import { EncounterPanel, type Placing } from './EncounterPanel';
@@ -20,10 +21,11 @@ const ROLL_MODES: { value: RollMode; label: string }[] = [
   { value: 'physical', label: 'Players use real dice' },
 ];
 
-type Tab = 'encounter' | 'map' | 'session';
+type Tab = 'encounter' | 'map' | 'art' | 'session';
 const TABS: { id: Tab; label: string }[] = [
   { id: 'encounter', label: 'Encounter' },
   { id: 'map', label: 'Map' },
+  { id: 'art', label: 'Art' },
   { id: 'session', label: 'Session' },
 ];
 
@@ -233,6 +235,10 @@ export function HostView({ game, combatEvents, lastSaved = null, notice = null }
 
             {/* The map editor renders its tools here, keeping their state while hidden. */}
             <div role="tabpanel" aria-label="Map" hidden={tab !== 'map'} ref={setToolsSlot} />
+
+            <div role="tabpanel" aria-label="Art" hidden={tab !== 'art'}>
+              <ArtPanel session={session} />
+            </div>
 
             <div role="tabpanel" aria-label="Session" hidden={tab !== 'session'}>
               <form className="row" onSubmit={saveTitle}>

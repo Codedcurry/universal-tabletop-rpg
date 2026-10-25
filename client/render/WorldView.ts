@@ -80,6 +80,7 @@ export class WorldView {
   private readonly tokens: TokenLayer;
   private readonly effects: SceneEffects;
   private artStyle: ArtStyle = 'simple';
+  private customTiles: Readonly<Record<string, string>> = {};
   private quality: GraphicsQuality = 'low';
   private readonly slowFrames = new SlowFrameDetector();
   private onSlow: (() => void) | null = null;
@@ -396,7 +397,8 @@ export class WorldView {
       this.effects.addShadowCaster(mesh);
       this.meshes.push(mesh);
     }
-    if (this.artStyle === 'pixel') this.buildTileCaps(map, grid, solidLook);
+    // Textured tile tops: every terrain in the Pixel style, and the DM's own tiles in either style.
+    if (this.artStyle === 'pixel' || Object.keys(this.customTiles).length > 0) this.buildTileCaps(map, grid, solidLook);
 
     // Other solid tiles get a block on top in their terrain's solid look: a canopy, a boulder, a crag.
     const blocks = new Map<string, Cell[]>();
@@ -605,7 +607,6 @@ export class WorldView {
     return ((this.heights.get(`${cell.q},${cell.r}`) ?? 0) + 1) * this.style.levelHeight;
   }
 
-  /** A unit-tall tile shape with its base at y = 0. */
   /**
    * Pixel art tile tops: a flat cap on each tile with its terrain's texture (one
    * of a few variants, fixed per tile), grouped so a big map stays a few draw calls.
@@ -614,8 +615,11 @@ export class WorldView {
     const groups = new Map<string, { terrain: string; variant: number; deep: boolean; cells: Cell[] }>();
     for (const tile of map.tiles) {
       const terrain = tile.terrain ?? DEFAULT_TERRAIN;
+      const custom = this.customTiles[terrain] !== undefined;
+      if (!custom && this.artStyle !== 'pixel') continue;
       const deep = tile.blocked === true && !tile.object && solidLook(terrain).height === 0;
-      const variant = cellSeed(tile.q, tile.r) % PIXEL_TILE_VARIANTS;
+      // The DM's own tile is one image; the pack's come in variants.
+      const variant = custom ? 0 : cellSeed(tile.q, tile.r) % PIXEL_TILE_VARIANTS;
       const key = `${terrain}:${variant}:${deep}`;
       const group = groups.get(key) ?? { terrain, variant, deep, cells: [] };
       group.cells.push(tile);
@@ -644,13 +648,22 @@ export class WorldView {
 
   /** A crisp (unsmoothed) pixel art texture for one terrain variant; deep water a shade darker. */
   private capMaterial(terrain: string, variant: number, deep: boolean): StandardMaterial {
-    const key = `cap-${terrain}-${variant}-${deep}`;
+    const custom = this.customTiles[terrain];
+    const key = custom ? `cap-custom-${terrain}-${deep}-${custom}` : `cap-${terrain}-${variant}-${deep}`;
     let material = this.materials.get(key);
     if (!material) {
-      const texture = new DynamicTexture(key, { width: PIXEL_TILE_SIZE, height: PIXEL_TILE_SIZE }, this.scene, false, Texture.NEAREST_SAMPLINGMODE);
-      const ctx = texture.getContext() as unknown as CanvasRenderingContext2D;
-      ctx.putImageData(new ImageData(pixelTile(terrain, variant), PIXEL_TILE_SIZE, PIXEL_TILE_SIZE), 0, 0);
-      texture.update();
+      let texture: Texture;
+      if (custom) {
+        // The DM's own image: crisp, like the pack's, and drawn once it has loaded.
+        texture = new Texture(custom, this.scene, true, true, Texture.NEAREST_SAMPLINGMODE);
+        texture.onLoadObservable.addOnce(() => this.invalidate());
+      } else {
+        const drawn = new DynamicTexture(key, { width: PIXEL_TILE_SIZE, height: PIXEL_TILE_SIZE }, this.scene, false, Texture.NEAREST_SAMPLINGMODE);
+        const ctx = drawn.getContext() as unknown as CanvasRenderingContext2D;
+        ctx.putImageData(new ImageData(pixelTile(terrain, variant), PIXEL_TILE_SIZE, PIXEL_TILE_SIZE), 0, 0);
+        drawn.update();
+        texture = drawn;
+      }
       texture.wrapU = Texture.CLAMP_ADDRESSMODE;
       texture.wrapV = Texture.CLAMP_ADDRESSMODE;
       material = new StandardMaterial(key, this.scene);
@@ -663,12 +676,17 @@ export class WorldView {
     return material;
   }
 
-  /** Pixel art tiles or plain colors (the viewer's Art style setting). */
-  setArtStyle(style: ArtStyle): void {
-    if (style === this.artStyle) return;
-    this.artStyle = style;
-    this.canvas.dataset.art = style;
-    // Rebuild the map in the new style (the camera stays put).
+  /** The DM's own tile textures (data URLs by terrain); they show in either art style. */
+  setCustomTiles(tiles: Readonly<Record<string, string>>): void {
+    const same = Object.keys(tiles).length === Object.keys(this.customTiles).length && Object.entries(tiles).every(([terrain, url]) => this.customTiles[terrain] === url);
+    if (same) return;
+    this.customTiles = { ...tiles };
+    this.canvas.dataset.customTiles = Object.keys(tiles).sort().join(',');
+    this.rebuildMap();
+  }
+
+  /** Builds the map again (a different look), keeping the camera where it is. */
+  private rebuildMap(): void {
     const map = this.map;
     const framed = this.framedFor;
     if (map) {
@@ -678,6 +696,15 @@ export class WorldView {
     }
   }
 
+  /** Pixel art tiles or plain colors (the viewer's Art style setting). */
+  setArtStyle(style: ArtStyle): void {
+    if (style === this.artStyle) return;
+    this.artStyle = style;
+    this.canvas.dataset.art = style;
+    this.rebuildMap();
+  }
+
+  /** A unit-tall tile shape with its base at y = 0. */
   private tileMesh(name: string, grid: Grid, fill: number): Mesh {
     const size = this.style.cellSize * fill;
     const mesh =

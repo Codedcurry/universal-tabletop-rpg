@@ -1,7 +1,8 @@
-import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 'react';
+import { type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import type { CameraCommand, CameraView } from '@shared/camera';
 import type { CombatEvent, CombatState } from '@shared/combat';
 import { lowerQuality } from '@shared/graphics';
+import { type CustomArt, EMPTY_ART } from '@shared/style/art';
 import type { GameSystem } from '@shared/system';
 import type { Cell } from '@shared/grid';
 import { type MapData, type WorldMap, objectInfo } from '@shared/map';
@@ -37,6 +38,8 @@ interface Props {
   /** Fog of war for this viewer (null: see everything), and creatures out of their sight. */
   readonly fog?: Fog | null;
   readonly hiddenTokens?: ReadonlySet<string>;
+  /** The DM's own art for the game (tile textures). */
+  readonly art?: CustomArt;
   /** Tiles with DM notes (the DM's view only). */
   readonly notes?: readonly Cell[];
   /** Creatures the chosen ability can target. */
@@ -70,7 +73,7 @@ export function WorldCanvas(props: Props) {
   const { map, editing, highlight = NONE, highlightKind = 'brush', ghosts = NONE, frameKey = 0, focus = null, onFocusEveryone, overlay, onPointer } =
     props;
   const { combat = null, system = null, combatEvents = null, targets = NO_TARGETS, onTokenClick, reach = NONE, reachKind = 'harm' } = props;
-  const { fog = null, hiddenTokens = NO_ONE, notes = NONE } = props;
+  const { fog = null, hiddenTokens = NO_ONE, notes = NONE, art = EMPTY_ART } = props;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const viewRef = useRef<WorldView | null>(null);
   const [camera, setCamera] = useState<CameraView>({ mode: '2.5d', free: false, cardinal: 'north' });
@@ -100,8 +103,12 @@ export function WorldCanvas(props: Props) {
   const { graphics: quality, combatSpeed, artStyle } = useDisplaySettings();
   useEffect(() => viewRef.current?.setGraphics(quality), [quality]);
   useEffect(() => viewRef.current?.setAnimationSpeed(combatSpeed), [combatSpeed]);
-  // Before the map is built, so it's built once in the chosen style.
+  // Before the map is built, so it's built once in the chosen style, with the DM's tiles.
   useEffect(() => viewRef.current?.setArtStyle(artStyle), [artStyle]);
+  const customTiles = useMemo(() => Object.fromEntries(Object.entries(art.tiles).map(([terrain, image]) => [terrain, image.dataUrl])), [art]);
+  useEffect(() => viewRef.current?.setCustomTiles(customTiles), [customTiles]);
+  // Changes when the map is rebuilt in a new look, which clears the overlays drawn over it.
+  const look = useMemo(() => `${artStyle}|${JSON.stringify(customTiles)}`, [artStyle, customTiles]);
 
   // When frames stay slow, step the graphics down and say so. Once someone raises
   // them again by hand after that, they know best: no more automatic changes.
@@ -128,10 +135,10 @@ export function WorldCanvas(props: Props) {
   useEffect(() => viewRef.current?.setMap(map), [map]);
   useEffect(() => viewRef.current?.setEditing(editing), [editing]);
   // After setMap, which clears overlays when the map changes.
-  useEffect(() => viewRef.current?.setHighlight(highlight, highlightKind), [highlight, highlightKind, map, artStyle]);
-  useEffect(() => viewRef.current?.setReach(reach, reachKind), [reach, reachKind, map, artStyle]);
-  useEffect(() => viewRef.current?.setGhosts(ghosts), [ghosts, map, artStyle]);
-  useEffect(() => viewRef.current?.setNotes(notes), [notes, map, artStyle]);
+  useEffect(() => viewRef.current?.setHighlight(highlight, highlightKind), [highlight, highlightKind, map, look]);
+  useEffect(() => viewRef.current?.setReach(reach, reachKind), [reach, reachKind, map, look]);
+  useEffect(() => viewRef.current?.setGhosts(ghosts), [ghosts, map, look]);
+  useEffect(() => viewRef.current?.setNotes(notes), [notes, map, look]);
   useEffect(() => {
     if (frameKey > 0) viewRef.current?.frameMap();
   }, [frameKey]);
@@ -145,9 +152,9 @@ export function WorldCanvas(props: Props) {
     const timeline = viewRef.current?.setCombat(combat, system, fresh?.events ?? null);
     // The action's sounds, timed to its animation.
     if (timeline) sounds.playAll(combatSounds(timeline));
-  }, [combat, system, combatEvents, map, artStyle]);
+  }, [combat, system, combatEvents, map, look]);
   // After setCombat, so new creatures are hidden too.
-  useEffect(() => viewRef.current?.setFog(fog, hiddenTokens), [fog, hiddenTokens, map, combat, artStyle]);
+  useEffect(() => viewRef.current?.setFog(fog, hiddenTokens), [fog, hiddenTokens, map, combat, look]);
   useEffect(() => viewRef.current?.setTargets(targets, highlightKind === 'help' ? 'help' : 'harm'), [targets, highlightKind]);
 
   const command = (next: CameraCommand) => viewRef.current?.cameraCommand(next);

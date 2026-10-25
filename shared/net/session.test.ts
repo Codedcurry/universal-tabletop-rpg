@@ -790,3 +790,31 @@ describe('fog of war and DM notes', () => {
     expect(() => network.host.setNote({ q: 0, r: 0 }, 'x'.repeat(2001))).toThrow(/long/);
   });
 });
+
+describe('custom art', () => {
+  const grass = { dataUrl: 'data:image/png;base64,iVBORw0KGgo=', width: 16, height: 16 };
+
+  it('sends the DM\'s tile art to every player, and takes it away again', () => {
+    const network = createTestNetwork();
+    const ana = network.join('Ana');
+    network.host.setTileArt('grass', grass);
+    network.flush();
+    expect(ana.session.state?.art.tiles.grass).toEqual(grass);
+    network.host.setTileArt('grass', null);
+    network.flush();
+    expect(ana.session.state?.art.tiles).toEqual({});
+  });
+
+  it('refuses images that are not images, or too big', () => {
+    const network = createTestNetwork();
+    expect(() => network.host.setTileArt('grass', { ...grass, dataUrl: 'https://example.com/x.png' })).toThrow(/image/i);
+    expect(() => network.host.setTileArt('grass', { ...grass, width: 5000 })).toThrow(/pixels/);
+  });
+
+  it('is saved with the game', () => {
+    const network = createTestNetwork();
+    network.host.setTileArt('stone', grass);
+    const restored = createTestNetwork({ restore: JSON.parse(JSON.stringify(network.host.saveGame('CAVE42'))) });
+    expect(restored.host.snapshot().art.tiles.stone).toEqual(grass);
+  });
+});

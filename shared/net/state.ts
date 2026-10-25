@@ -42,6 +42,8 @@ export function applyUpdate(
   switch (update.kind) {
     case 'players':
       return { ...next, players: update.players };
+    case 'art':
+      return { ...next, art: update.art };
     case 'settings':
       return { ...next, dmTitle: update.dmTitle, rollMode: update.rollMode, playersControlOwn: update.playersControlOwn, fogOfWar: update.fogOfWar };
     case 'system':

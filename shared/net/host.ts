@@ -22,6 +22,7 @@ import {
 import { DiceNotationError, RollReplayError, type RollResult, replayRoll, roll } from '../dice';
 import { type Cell, cellKey } from '../grid';
 import { SAVED_GAME_FORMAT, SAVED_GAME_VERSION, type SavedGame } from './saved';
+import { EMPTY_ART, type ImageAsset, validateCustomArt, withTile } from '../style/art';
 import { type MapPatch, applyPatch, isEmptyPatch } from '../editor';
 import { type MapData, type WorldMap, createWorldMap } from '../map';
 import type { RandomSource } from '../random';
@@ -119,6 +120,7 @@ export class HostSession {
       rollMode: 'player',
       playersControlOwn: true,
       fogOfWar: false,
+      art: EMPTY_ART,
       players: [],
       system: null,
       map: null,
@@ -136,13 +138,13 @@ export class HostSession {
 
   /** Everything needed to carry on later (see saved.ts), under the room code `code`. */
   saveGame(code: string): SavedGame {
-    const { dmTitle, rollMode, playersControlOwn, fogOfWar, system, map, combat, log } = this.state;
+    const { dmTitle, rollMode, playersControlOwn, fogOfWar, system, map, combat, log, art } = this.state;
     return {
       format: SAVED_GAME_FORMAT,
       version: SAVED_GAME_VERSION,
       code,
       savedAt: this.options.now(),
-      state: { dmTitle, rollMode, playersControlOwn, fogOfWar, system, map, combat, log },
+      state: { dmTitle, rollMode, playersControlOwn, fogOfWar, system, map, combat, log, art },
       players: this.players.map(({ id, token, name, character, granted }) => ({ id, token, name, character, granted: [...granted] })),
       notes: this.notes(),
       nextPlayerNumber: this.nextPlayerNumber,
@@ -166,6 +168,7 @@ export class HostSession {
       map: state.map,
       combat: state.combat,
       log: [...state.log],
+      art: state.art ?? EMPTY_ART,
     };
     this.worldMap = state.map ? createWorldMap(state.map) : null;
     this.players.length = 0;
@@ -280,6 +283,14 @@ export class HostSession {
       kind: 'system',
       text: on ? 'Players control their own characters again' : `${this.state.dmTitle} now controls the players' characters`,
     });
+  }
+
+  /** Sets (or, with null, removes) the DM's own texture for a terrain's tiles. Throws if the image won't do. */
+  setTileArt(terrain: string, image: ImageAsset | null): void {
+    const art = withTile(this.state.art, terrain, image);
+    const checked = validateCustomArt(art);
+    if (!checked.ok) throw new Error(checked.error);
+    this.publish({ kind: 'art', art });
   }
 
   /** Fog of war: players see only what their creatures can see. */

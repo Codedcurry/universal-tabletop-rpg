@@ -1397,3 +1397,37 @@ button.danger {
   border-color: var(--accent);
   color: var(--accent);
 }
+
+/* The Art tab: each terrain's tile, and a crisp preview of a new one. */
+.tile-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.tile-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.tile-thumb {
+  width: 32px;
+  height: 32px;
+  image-rendering: pixelated;
+  border-radius: 4px;
+  flex: none;
+}
+.tile-preview-image {
+  width: 96px;
+  height: 96px;
+  object-fit: fill;
+  image-rendering: pixelated;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.file-button.small {
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 14px;
+}

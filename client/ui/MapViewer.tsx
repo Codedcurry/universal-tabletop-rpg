@@ -3,6 +3,7 @@ import type { CombatAction, CombatEvent, CombatState } from '@shared/combat';
 import type { Cell } from '@shared/grid';
 import { type MapData, createWorldMap } from '@shared/map';
 import type { GameSystem } from '@shared/system';
+import type { CustomArt } from '@shared/style/art';
 import { sounds } from '../audio/soundEngine';
 import { CombatHud } from './CombatHud';
 import { useCombatPlay } from './useCombatPlay';
@@ -18,12 +19,14 @@ interface Props {
   readonly combatEvents: { readonly events: readonly CombatEvent[]; readonly key: number } | null;
   /** The DM turned on fog of war: see only what this player's creatures see. */
   readonly fogOfWar?: boolean;
+  /** The DM's own art for the game. */
+  readonly art?: CustomArt;
   canControl(combatantId: string): boolean;
   act(action: CombatAction): void;
 }
 
 /** A player's view of the map, updated live as the DM edits; the fight is played from here. */
-export function MapViewer({ map, focus = null, combat, system, combatEvents, fogOfWar = false, canControl, act }: Props) {
+export function MapViewer({ map, focus = null, combat, system, combatEvents, fogOfWar = false, art, canControl, act }: Props) {
   const [hovered, setHovered] = useState<Cell | null>(null);
   const world = useMemo(() => (map ? createWorldMap(map) : null), [map]);
   const play = useCombatPlay({ combat, system, map, canControl, act });
@@ -52,6 +55,7 @@ export function MapViewer({ map, focus = null, combat, system, combatEvents, fog
         system={system}
         combatEvents={combatEvents}
         fog={fog}
+        {...(art ? { art } : {})}
         hiddenTokens={hidden}
         targets={play.targets}
         onTokenClick={play.onTokenClick}
