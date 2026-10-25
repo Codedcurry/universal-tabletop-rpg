@@ -79,6 +79,7 @@ describe('character art', () => {
     ['more frames than the sheet is wide', { ...layout, clips: { idle: { ...layout.clips.idle, down: { row: 0, frames: 3, mirror: false } } } }],
     ['an animation that doesn\'t exist', { ...layout, clips: { ...layout.clips, dance: layout.clips.idle } }],
     ['no idle animation', { ...layout, clips: {} }],
+    ['a run that starts too far along its row', { ...layout, clips: { idle: { ...layout.clips.idle, down: { row: 0, column: 1, frames: 2, mirror: false } } } }],
     ['an animation speed out of range', { ...layout, fps: { idle: 0 } }],
     ['a body taller than the frames', { ...layout, bodySize: 17 }],
   ])('refuses a layout with %s', (_name, badLayout) => {

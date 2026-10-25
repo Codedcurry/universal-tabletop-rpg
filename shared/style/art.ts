@@ -125,7 +125,9 @@ function layoutProblem(layout: unknown, image: ImageAsset): string | null {
         return `the ${clip} animation has no ${direction} row`;
       }
       if (!Number.isInteger(row.row) || row.row < 0 || row.row >= rows) return `the ${clip} animation's ${direction} row is off the sheet`;
-      if (!Number.isInteger(row.frames) || row.frames < 1 || row.frames > columns) return `the ${clip} animation has more frames than the sheet is wide`;
+      const start = row.column ?? 0;
+      if (typeof start !== 'number' || !Number.isInteger(start) || start < 0) return `the ${clip} animation's ${direction} row is off the sheet`;
+      if (!Number.isInteger(row.frames) || row.frames < 1 || start + row.frames > columns) return `the ${clip} animation has more frames than the sheet is wide`;
     }
   }
   return null;

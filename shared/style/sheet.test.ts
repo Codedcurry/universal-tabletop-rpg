@@ -112,6 +112,11 @@ describe('frameAt', () => {
     expect(frameAt(slow, 'idle', 'down', 130)?.column).toBe(1);
   });
 
+  it('counts from where a run starts, when animations share a row', () => {
+    const shared = { ...layout, clips: { ...layout.clips, victory: { ...layout.clips.walk!, down: { row: 4, column: 2, frames: 2, mirror: false } } } };
+    expect(frameAt(shared, 'victory', 'down', 130)?.column).toBe(3);
+  });
+
   it('holds the last frame of a one-off animation instead of looping', () => {
     expect(frameAt(layout, 'walk', 'down', 10_000, { loop: false })?.column).toBe(3);
   });

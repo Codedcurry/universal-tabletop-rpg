@@ -159,6 +159,32 @@ export function sheetRows(counts: FrameCounts): { clip: Clip; view: View; frames
   return CLIPS.flatMap((clip) => VIEWS.flatMap((view) => ((counts[clip]?.[view] ?? 0) > 0 ? [{ clip, view, frames: counts[clip]?.[view] ?? 0 }] : [])));
 }
 
+/** A run of frames (an animation from one view) and where it goes on the sheet. */
+export interface PlacedRun {
+  readonly clip: Clip;
+  readonly view: View;
+  readonly frames: number;
+  readonly row: number;
+  readonly column: number;
+}
+
+/**
+ * Where each run goes on a sheet at most `columns` frames wide: in order, each
+ * in the first row with room, so short animations share rows. Throws if a
+ * run is wider than the sheet.
+ */
+export function packRows(counts: FrameCounts, columns: number): PlacedRun[] {
+  const used: number[] = [];
+  return sheetRows(counts).map((run) => {
+    if (run.frames > columns) throw new Error(`${run.clip} (${run.view} view) has too many frames for sprites this big: at most ${columns}`);
+    let row = used.findIndex((width) => width + run.frames <= columns);
+    if (row < 0) row = used.push(0) - 1;
+    const column = used[row]!;
+    used[row] = column + run.frames;
+    return { ...run, row, column };
+  });
+}
+
 /** Which views stand in for each direction, best first. */
 const STAND_INS: Readonly<Record<SpriteDirection, readonly View[]>> = {
   down: ['front', 'side', 'back'],
@@ -168,24 +194,31 @@ const STAND_INS: Readonly<Record<SpriteDirection, readonly View[]>> = {
 };
 
 /**
- * The standard layout for picked frames: a row per animation and view (see
- * `sheetRows`), its frames across. Facing down uses the front view, up the
+ * The standard layout for picked frames: each animation and view a run of
+ * frames across, packed into rows (see `packRows`; by default as wide as the
+ * longest run). Facing down uses the front view, up the
  * back, left and right the side (mirrored for the side the sprites don't
  * face); a missing view is stood in for by another. Throws without idle frames.
  */
-export function assembleLayout(counts: FrameCounts, frameSize: number, faces: 'left' | 'right', bodySize?: number): SheetLayout {
-  const rows = sheetRows(counts);
+export function assembleLayout(
+  counts: FrameCounts,
+  frameSize: number,
+  faces: 'left' | 'right',
+  options: { bodySize?: number; columns?: number } = {},
+): SheetLayout {
+  const { bodySize } = options;
+  const rows = packRows(counts, options.columns ?? Math.max(1, ...sheetRows(counts).map((run) => run.frames)));
   if (!rows.some((row) => row.clip === 'idle')) throw new Error('Pick at least one idle frame');
   const clips: Partial<Record<Clip, Record<SpriteDirection, SheetRow>>> = {};
   for (const clip of CLIPS) {
-    const own = rows.flatMap((row, index) => (row.clip === clip ? [{ ...row, index }] : []));
+    const own = rows.filter((row) => row.clip === clip);
     if (own.length === 0) continue;
     const entry = {} as Record<SpriteDirection, SheetRow>;
     for (const direction of ['down', 'left', 'right', 'up'] as const) {
       const view = STAND_INS[direction].find((candidate) => own.some((row) => row.view === candidate)) as View;
       const row = own.find((candidate) => candidate.view === view)!;
       const flipped = view === 'side' && (direction === 'left' || direction === 'right') && direction !== faces;
-      entry[direction] = { row: row.index, frames: row.frames, mirror: flipped };
+      entry[direction] = row.column > 0 ? { row: row.row, column: row.column, frames: row.frames, mirror: flipped } : { row: row.row, frames: row.frames, mirror: flipped };
     }
     clips[clip] = entry;
   }

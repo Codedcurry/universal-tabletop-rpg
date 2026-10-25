@@ -2,7 +2,7 @@ import { type PointerEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { CLIPS, type Clip } from '@shared/anim';
 import { type CharacterArt, type ImageAsset, MAX_IMAGE_CHARS, MAX_IMAGE_SIDE } from '@shared/style/art';
-import { type Box, type FrameCounts, VIEWS, type View, assembleLayout, clearBackground, findSprites, planCells, sheetRows } from '@shared/style/frames';
+import { type Box, type FrameCounts, VIEWS, type View, assembleLayout, clearBackground, findSprites, packRows, planCells, sheetRows } from '@shared/style/frames';
 import { DEFAULT_FPS, type SheetLayout } from '@shared/style/sheet';
 import { type Crop, Preview, type Sheet, SpeedField, TokenEditor, makeToken, withSpeeds } from './spritePreview';
 
@@ -33,33 +33,39 @@ const VIEW_LABELS: Record<View, string> = { side: 'side view', front: 'front vie
 /** Picked frames laid out as a standard sheet, or why they can't be. */
 function compose(clean: HTMLCanvasElement, pixels: ImageData, sprites: readonly Box[], picks: Picks, faces: 'left' | 'right'): Composed | string {
   const counts: FrameCounts = Object.fromEntries(CLIPS.map((clip) => [clip, Object.fromEntries(VIEWS.map((view) => [view, picks[view]?.[clip]?.length ?? 0]))]));
-  const rows = sheetRows(counts);
-  const idle = rows.find((row) => row.clip === 'idle');
+  const runs = sheetRows(counts);
+  const idle = runs.find((run) => run.clip === 'idle');
   if (!idle) return 'Pick at least one idle frame';
-  const framesOf = (row: { clip: Clip; view: View }) => picks[row.view]?.[row.clip] ?? [];
-  const boxes = rows.flatMap((row) => framesOf(row).map((index) => sprites[index]!));
-  const { size, placements } = planCells(pixels, boxes);
-  const columns = Math.max(...rows.map((row) => row.frames));
-  if (size * columns > MAX_IMAGE_SIDE || size * rows.length > MAX_IMAGE_SIDE) {
-    return `Too many frames for sprites this big: at most ${Math.floor(MAX_IMAGE_SIDE / size)} per animation, and ${Math.floor(MAX_IMAGE_SIDE / size)} animations and views in all`;
+  const framesOf = (run: { clip: Clip; view: View }) => picks[run.view]?.[run.clip] ?? [];
+  const { size, placements } = planCells(pixels, runs.flatMap((run) => framesOf(run).map((index) => sprites[index]!)));
+  // Runs share rows where they fit, on a sheet at most MAX_IMAGE_SIDE across and down.
+  const fit = Math.floor(MAX_IMAGE_SIDE / size);
+  let placed: ReturnType<typeof packRows>;
+  try {
+    placed = packRows(counts, fit);
+  } catch (caught) {
+    return caught instanceof Error ? caught.message : String(caught);
   }
+  const rows = Math.max(...placed.map((run) => run.row)) + 1;
+  if (rows > fit) return `Too many frames in all for sprites this big: at most ${fit * fit}`;
+  const columns = Math.max(...placed.map((run) => run.column + run.frames));
 
   const canvas = document.createElement('canvas');
   canvas.width = size * columns;
-  canvas.height = size * rows.length;
+  canvas.height = size * rows;
   const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
   let at = 0;
-  rows.forEach((row, line) => {
-    framesOf(row).forEach((index, column) => {
+  for (const run of placed) {
+    framesOf(run).forEach((index, frame) => {
       const box = sprites[index]!;
       const { dx, dy } = placements[at++]!;
-      ctx.drawImage(clean, box.x, box.y, box.width, box.height, column * size + dx, line * size + dy, box.width, box.height);
+      ctx.drawImage(clean, box.x, box.y, box.width, box.height, (run.column + frame) * size + dx, run.row * size + dy, box.width, box.height);
     });
-  });
+  }
 
   // The standing pose's height is the body's, so weapons reaching out don't shrink the character.
   const body = Math.max(...framesOf(idle).map((index) => sprites[index]!.height));
-  const layout = assembleLayout(counts, size, faces, body < size ? body : undefined);
+  const layout = assembleLayout(counts, size, faces, { columns: fit, ...(body < size ? { bodySize: body } : {}) });
   const dataUrl = canvas.toDataURL('image/png');
   if (dataUrl.length >= MAX_IMAGE_CHARS) return 'Too many frames: the finished sheet would be over about 500 KB';
   return { layout, image: { dataUrl, width: canvas.width, height: canvas.height }, canvas };

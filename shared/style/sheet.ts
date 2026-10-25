@@ -24,6 +24,8 @@ export interface SheetRow {
   /** The sheet row to draw from (0 is the top). */
   readonly row: number;
   readonly frames: number;
+  /** The column of its first frame, if not the first: short animations can share a row. */
+  readonly column?: number;
   /** Draw it flipped (a left row standing in for right, or the other way). */
   readonly mirror: boolean;
 }
@@ -157,7 +159,7 @@ export function frameAt(
   const fps = layout.fps?.[clip] ?? DEFAULT_FPS;
   const step = Math.floor((Math.max(0, elapsedMs) * fps) / 1000);
   const column = options.loop === false ? Math.min(step, row.frames - 1) : step % row.frames;
-  return { row: row.row, column, mirror: row.mirror };
+  return { row: row.row, column: (row.column ?? 0) + column, mirror: row.mirror };
 }
 
 /**
