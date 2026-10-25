@@ -151,3 +151,19 @@ test('graphics step down by themselves when the device can\'t keep up', async ({
   await openSettings(dm);
   await expect(settings(dm).getByLabel('Graphics quality')).not.toHaveValue('high');
 });
+
+test('tiles are pixel art by default, and can be switched to plain colors', async ({ browser }) => {
+  const page = await (await context(browser)).newPage();
+  await host(page);
+  const canvas = page.getByTestId('world-canvas');
+  await expect(canvas).toHaveAttribute('data-art', 'pixel');
+  const pixel = await canvas.screenshot();
+  const panel = await openSettings(page).then(() => settings(page));
+  await expect(panel.getByLabel('Art style')).toHaveValue('pixel');
+  await panel.getByLabel('Art style').selectOption('simple');
+  await expect(canvas).toHaveAttribute('data-art', 'simple');
+  await page.keyboard.press('Escape');
+  await page.mouse.move(0, 0);
+  await page.waitForTimeout(500);
+  expect((await canvas.screenshot()).equals(pixel)).toBe(false);
+});

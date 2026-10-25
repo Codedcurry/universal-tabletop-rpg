@@ -97,9 +97,11 @@ export function WorldCanvas(props: Props) {
   }, []);
 
   // How much 2.5D polish to draw: this viewer's choice, kept on this device.
-  const { graphics: quality, combatSpeed } = useDisplaySettings();
+  const { graphics: quality, combatSpeed, artStyle } = useDisplaySettings();
   useEffect(() => viewRef.current?.setGraphics(quality), [quality]);
   useEffect(() => viewRef.current?.setAnimationSpeed(combatSpeed), [combatSpeed]);
+  // Before the map is built, so it's built once in the chosen style.
+  useEffect(() => viewRef.current?.setArtStyle(artStyle), [artStyle]);
 
   // When frames stay slow, step the graphics down and say so. Once someone raises
   // them again by hand after that, they know best: no more automatic changes.
@@ -126,10 +128,10 @@ export function WorldCanvas(props: Props) {
   useEffect(() => viewRef.current?.setMap(map), [map]);
   useEffect(() => viewRef.current?.setEditing(editing), [editing]);
   // After setMap, which clears overlays when the map changes.
-  useEffect(() => viewRef.current?.setHighlight(highlight, highlightKind), [highlight, highlightKind, map]);
-  useEffect(() => viewRef.current?.setReach(reach, reachKind), [reach, reachKind, map]);
-  useEffect(() => viewRef.current?.setGhosts(ghosts), [ghosts, map]);
-  useEffect(() => viewRef.current?.setNotes(notes), [notes, map]);
+  useEffect(() => viewRef.current?.setHighlight(highlight, highlightKind), [highlight, highlightKind, map, artStyle]);
+  useEffect(() => viewRef.current?.setReach(reach, reachKind), [reach, reachKind, map, artStyle]);
+  useEffect(() => viewRef.current?.setGhosts(ghosts), [ghosts, map, artStyle]);
+  useEffect(() => viewRef.current?.setNotes(notes), [notes, map, artStyle]);
   useEffect(() => {
     if (frameKey > 0) viewRef.current?.frameMap();
   }, [frameKey]);
@@ -143,9 +145,9 @@ export function WorldCanvas(props: Props) {
     const timeline = viewRef.current?.setCombat(combat, system, fresh?.events ?? null);
     // The action's sounds, timed to its animation.
     if (timeline) sounds.playAll(combatSounds(timeline));
-  }, [combat, system, combatEvents, map]);
+  }, [combat, system, combatEvents, map, artStyle]);
   // After setCombat, so new creatures are hidden too.
-  useEffect(() => viewRef.current?.setFog(fog, hiddenTokens), [fog, hiddenTokens, map, combat]);
+  useEffect(() => viewRef.current?.setFog(fog, hiddenTokens), [fog, hiddenTokens, map, combat, artStyle]);
   useEffect(() => viewRef.current?.setTargets(targets, highlightKind === 'help' ? 'help' : 'harm'), [targets, highlightKind]);
 
   const command = (next: CameraCommand) => viewRef.current?.cameraCommand(next);

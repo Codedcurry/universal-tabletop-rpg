@@ -70,6 +70,13 @@ export function DisplaySettingsMenu({ onGraphicsPicked }: { onGraphicsPicked(qua
           </select>
         </label>
         <label>
+          <span>Art style</span>
+          <select value={settings.artStyle} onChange={(event) => setDisplaySetting('artStyle', event.target.value as 'pixel' | 'simple')}>
+            <option value="pixel">Pixel (HD-2D)</option>
+            <option value="simple">Simple colors</option>
+          </select>
+        </label>
+        <label>
           <span>Combat animations</span>
           <select
             value={settings.combatSpeed}

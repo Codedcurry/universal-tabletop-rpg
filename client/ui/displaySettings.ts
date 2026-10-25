@@ -14,12 +14,15 @@ export interface DisplaySettings {
   /** Sound effects and background music volumes, 0 (off) to 100. */
   readonly effectsVolume: number;
   readonly musicVolume: number;
+  /** Tiles as pixel art (the HD-2D pack) or plain colors. */
+  readonly artStyle: 'pixel' | 'simple';
 }
 
 const SPEED_KEY = 'ttrpg.combatSpeed';
 const AWAKE_KEY = 'ttrpg.keepAwake';
 const EFFECTS_KEY = 'ttrpg.effectsVolume';
 const MUSIC_KEY = 'ttrpg.musicVolume';
+const ART_KEY = 'ttrpg.artStyle';
 
 /** A saved volume (0 to 100), or the default. */
 function volume(saved: string | null, fallback: number): number {
@@ -61,6 +64,7 @@ function load(): DisplaySettings {
     // Effects on, music off until someone turns it up.
     effectsVolume: volume(read(EFFECTS_KEY), 60),
     musicVolume: volume(read(MUSIC_KEY), 0),
+    artStyle: read(ART_KEY) === 'simple' ? 'simple' : 'pixel',
   };
 }
 
@@ -74,6 +78,7 @@ export function setDisplaySetting<K extends keyof DisplaySettings>(key: K, value
   if (key === 'keepAwake') write(AWAKE_KEY, String(value));
   if (key === 'effectsVolume') write(EFFECTS_KEY, String(value));
   if (key === 'musicVolume') write(MUSIC_KEY, String(value));
+  if (key === 'artStyle') write(ART_KEY, String(value));
   for (const listener of listeners) listener();
 }
 

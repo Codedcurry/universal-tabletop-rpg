@@ -7,6 +7,10 @@ import { Color3, Color4 } from '@babylonjs/core/Maths/math.color';
 import { Matrix, Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { CreateBox } from '@babylonjs/core/Meshes/Builders/boxBuilder';
 import { CreateCylinder } from '@babylonjs/core/Meshes/Builders/cylinderBuilder';
+import { CreateDisc } from '@babylonjs/core/Meshes/Builders/discBuilder';
+import { CreatePlane } from '@babylonjs/core/Meshes/Builders/planeBuilder';
+import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTexture';
+import { Texture } from '@babylonjs/core/Materials/Textures/texture';
 import type { Mesh } from '@babylonjs/core/Meshes/mesh';
 import { Scene } from '@babylonjs/core/scene';
 import '@babylonjs/core/Culling/ray';
@@ -19,6 +23,7 @@ import type { CombatEvent, CombatState } from '@shared/combat';
 import type { GameSystem } from '@shared/system';
 import { type AnimationSpeed, type Timeline, timingFor } from '@shared/anim';
 import { type GraphicsQuality, SlowFrameDetector, effectsFor } from '@shared/graphics';
+import { PIXEL_TILE_SIZE, PIXEL_TILE_VARIANTS, pixelTile, tileSideColor } from '@shared/style/pixelTiles';
 import { CameraRig } from './CameraRig';
 import { SceneEffects } from './SceneEffects';
 import { buildObjectMeshes, cellSeed } from './objectMeshes';
@@ -50,6 +55,12 @@ export interface TilePointer {
   readonly y: number;
 }
 
+/** How tiles are drawn: pixel art textures (the HD-2D pack) or plain colors. */
+export type ArtStyle = 'pixel' | 'simple';
+
+const toHex = ([r, g, b]: readonly [number, number, number], shade = 1) =>
+  `#${[r, g, b].map((value) => Math.round(value * shade).toString(16).padStart(2, '0')).join('')}`;
+
 const HEX_ROTATION = Quaternion.RotationAxis(Vector3.Up(), Math.PI / 6); // pointy-top
 const WALL_THICKNESS = 0.12;
 const WALL_RISE = 2; // levels above the higher of the two tiles
@@ -68,6 +79,7 @@ export class WorldView {
   private readonly rig: CameraRig;
   private readonly tokens: TokenLayer;
   private readonly effects: SceneEffects;
+  private artStyle: ArtStyle = 'simple';
   private quality: GraphicsQuality = 'low';
   private readonly slowFrames = new SlowFrameDetector();
   private onSlow: (() => void) | null = null;
@@ -362,7 +374,13 @@ export class WorldView {
     for (const tile of map.tiles) {
       const terrain = tile.terrain ?? DEFAULT_TERRAIN;
       const solid = tile.blocked ? solidLook(terrain) : null;
-      const color = solid && solid.height === 0 ? solid.color : (this.style.terrain[terrain] ?? this.style.unknownTerrain).color;
+      const deep = solid !== null && solid.height === 0;
+      // Pixel art: the column is the terrain's side color (its textured top is a cap, below).
+      const color = this.artStyle === 'pixel'
+        ? toHex(tileSideColor(terrain), deep ? 0.75 : 1)
+        : deep
+          ? (solid as { color: string }).color
+          : (this.style.terrain[terrain] ?? this.style.unknownTerrain).color;
       byColor.set(color, [...(byColor.get(color) ?? []), tile]);
     }
     for (const [color, cells] of byColor) {
@@ -378,6 +396,7 @@ export class WorldView {
       this.effects.addShadowCaster(mesh);
       this.meshes.push(mesh);
     }
+    if (this.artStyle === 'pixel') this.buildTileCaps(map, grid, solidLook);
 
     // Other solid tiles get a block on top in their terrain's solid look: a canopy, a boulder, a crag.
     const blocks = new Map<string, Cell[]>();
@@ -587,6 +606,78 @@ export class WorldView {
   }
 
   /** A unit-tall tile shape with its base at y = 0. */
+  /**
+   * Pixel art tile tops: a flat cap on each tile with its terrain's texture (one
+   * of a few variants, fixed per tile), grouped so a big map stays a few draw calls.
+   */
+  private buildTileCaps(map: MapData, grid: Grid, solidLook: (terrain: string) => { height: number }): void {
+    const groups = new Map<string, { terrain: string; variant: number; deep: boolean; cells: Cell[] }>();
+    for (const tile of map.tiles) {
+      const terrain = tile.terrain ?? DEFAULT_TERRAIN;
+      const deep = tile.blocked === true && !tile.object && solidLook(terrain).height === 0;
+      const variant = cellSeed(tile.q, tile.r) % PIXEL_TILE_VARIANTS;
+      const key = `${terrain}:${variant}:${deep}`;
+      const group = groups.get(key) ?? { terrain, variant, deep, cells: [] };
+      group.cells.push(tile);
+      groups.set(key, group);
+    }
+    const radius = this.style.cellSize * this.style.tileFill;
+    for (const [key, group] of groups) {
+      const cap = grid.kind === 'hex' ? CreateDisc(`cap-${key}`, { radius, tessellation: 6 }, this.scene) : CreatePlane(`cap-${key}`, { size: radius }, this.scene);
+      // Lie flat, facing up (and turned to match the hex columns).
+      cap.bakeTransformIntoVertices(
+        Matrix.RotationX(Math.PI / 2).multiply(grid.kind === 'hex' ? Matrix.FromQuaternionToRef(HEX_ROTATION, new Matrix()) : Matrix.Identity()),
+      );
+      cap.material = this.capMaterial(group.terrain, group.variant, group.deep);
+      cap.isPickable = false;
+      const buffer = new Float32Array(group.cells.length * 16);
+      group.cells.forEach((cell, index) => {
+        const { x, z } = grid.toWorld(cell, this.style.cellSize);
+        Matrix.Translation(x, this.tileTop(cell) + 0.004, z).copyToArray(buffer, index * 16);
+      });
+      cap.thinInstanceSetBuffer('matrix', buffer, 16);
+      cap.thinInstanceRefreshBoundingInfo(false);
+      this.effects.addShadowCaster(cap);
+      this.meshes.push(cap);
+    }
+  }
+
+  /** A crisp (unsmoothed) pixel art texture for one terrain variant; deep water a shade darker. */
+  private capMaterial(terrain: string, variant: number, deep: boolean): StandardMaterial {
+    const key = `cap-${terrain}-${variant}-${deep}`;
+    let material = this.materials.get(key);
+    if (!material) {
+      const texture = new DynamicTexture(key, { width: PIXEL_TILE_SIZE, height: PIXEL_TILE_SIZE }, this.scene, false, Texture.NEAREST_SAMPLINGMODE);
+      const ctx = texture.getContext() as unknown as CanvasRenderingContext2D;
+      ctx.putImageData(new ImageData(pixelTile(terrain, variant), PIXEL_TILE_SIZE, PIXEL_TILE_SIZE), 0, 0);
+      texture.update();
+      texture.wrapU = Texture.CLAMP_ADDRESSMODE;
+      texture.wrapV = Texture.CLAMP_ADDRESSMODE;
+      material = new StandardMaterial(key, this.scene);
+      material.diffuseTexture = texture;
+      material.specularColor = Color3.Black();
+      material.backFaceCulling = false; // a flat cap: whichever way it was built, seen from above
+      if (deep) material.diffuseColor = new Color3(0.62, 0.68, 0.8);
+      this.materials.set(key, material);
+    }
+    return material;
+  }
+
+  /** Pixel art tiles or plain colors (the viewer's Art style setting). */
+  setArtStyle(style: ArtStyle): void {
+    if (style === this.artStyle) return;
+    this.artStyle = style;
+    this.canvas.dataset.art = style;
+    // Rebuild the map in the new style (the camera stays put).
+    const map = this.map;
+    const framed = this.framedFor;
+    if (map) {
+      this.setMap(map);
+      this.framedFor = framed;
+      this.needsFraming = false;
+    }
+  }
+
   private tileMesh(name: string, grid: Grid, fill: number): Mesh {
     const size = this.style.cellSize * fill;
     const mesh =
