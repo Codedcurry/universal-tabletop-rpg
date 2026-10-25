@@ -148,7 +148,7 @@ async function battleSheet(page: Page) {
   return { name: 'battle-sheet.png', mimeType: 'image/png', buffer: Buffer.from(dataUrl.split(',')[1]!, 'base64') };
 }
 
-test('the DM picks frames from a free-form sheet to build a character\'s animations', async ({ browser }) => {
+test('the DM picks frames from a free-form sheet in a pop-up window, by box or by click', async ({ browser }) => {
   const { dm, ana } = await table(browser);
   await dm.getByRole('tab', { name: 'Encounter' }).click();
   const encounter = dm.getByRole('tabpanel', { name: 'Encounter' });
@@ -163,21 +163,34 @@ test('the DM picks frames from a free-form sheet to build a character\'s animati
   const art = dm.getByRole('tabpanel', { name: 'Characters' });
   await art.getByLabel('Character').selectOption({ label: 'Goblin (every goblin)' });
   await art.getByLabel('Pick frames from any sheet').setInputFiles(await battleSheet(dm));
-  const picker = art.getByRole('group', { name: 'Pick frames' });
+  // A window pops up, asking for the idle frames first.
+  const picker = dm.getByRole('dialog', { name: 'Pick frames' });
+  await expect(picker).toContainText('Drag a box around the idle frames');
   // Found on the solid background; the spear belongs to its sprite.
   await expect(picker).toContainText('5 sprites found');
   await expect(picker.getByRole('button', { name: /^Sprite \d+$/ })).toHaveCount(5);
+  const frames = picker.getByRole('button', { name: /^Remove frame/ });
 
-  // Idle starts with the first sprite; add another, then build a walk.
-  await expect(picker.getByRole('button', { name: /^Remove frame/ })).toHaveCount(1);
-  await picker.getByRole('button', { name: 'Sprite 2' }).click();
-  await expect(picker.getByRole('button', { name: /^Remove frame/ })).toHaveCount(2);
-  await picker.getByRole('combobox', { name: /^Animation/ }).selectOption('walk');
-  await expect(picker.getByRole('button', { name: /^Remove frame/ })).toHaveCount(0);
-  await picker.getByRole('button', { name: 'Sprite 3' }).click();
-  await picker.getByRole('button', { name: 'Sprite 4' }).click();
+  // Clicking adds one frame at a time.
+  await picker.getByRole('button', { name: 'Sprite 1' }).click();
+  await expect(frames).toHaveCount(1);
+
+  // Next, walk: a box dragged around sprites 2 to 4 adds them, left to right.
+  await picker.getByRole('button', { name: 'Next: walk' }).click();
+  await expect(picker).toContainText('Drag a box around the walk frames');
+  await expect(frames).toHaveCount(0);
+  const second = (await picker.getByRole('button', { name: 'Sprite 2' }).boundingBox())!;
+  const fourth = (await picker.getByRole('button', { name: 'Sprite 4' }).boundingBox())!;
+  await dm.mouse.move(second.x - 4, Math.min(second.y, fourth.y) - 4);
+  await dm.mouse.down();
+  await dm.mouse.move(fourth.x + fourth.width + 4, Math.max(second.y + second.height, fourth.y + fourth.height) + 4, { steps: 8 });
+  await dm.mouse.up();
+  await expect(frames).toHaveCount(3);
+  await expect(frames.nth(0)).toHaveText(/#2/);
+  await expect(frames.nth(1)).toHaveText(/#3/);
+  await expect(frames.nth(2)).toHaveText(/#4/);
   await picker.getByRole('button', { name: 'Remove frame 2' }).click();
-  await picker.getByRole('button', { name: 'Sprite 5' }).click();
+  await expect(frames).toHaveCount(2);
   await expect(picker).toContainText('animations: idle, walk');
   await expect(picker.getByRole('img', { name: /preview/i })).toBeVisible();
   await expect(picker.getByRole('img', { name: 'Round token' })).toBeVisible();

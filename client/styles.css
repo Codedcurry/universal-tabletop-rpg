@@ -1453,6 +1453,7 @@ button.danger {
 /* Art tab: Tiles | Characters. */
 .art-tabs {
   display: flex;
+  gap: 4px;
   margin-bottom: 12px;
 }
 .art-tabs > [role='tab'] {
@@ -1464,18 +1465,66 @@ button.danger {
   border-color: var(--accent);
   color: #1a1400;
 }
-/* The frame picker: the sheet with a clickable box on each sprite. */
+/* The frame picker: a window over everything, with the sheet and a clickable box on each sprite. */
+.picker-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 950;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 16px;
+  overflow: auto;
+  background: rgba(10, 8, 16, 0.72);
+}
+.picker-dialog {
+  width: min(1100px, 100%);
+  margin: auto 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+}
+.picker-dialog:focus {
+  outline: none;
+}
+.picker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.picker-head h3 {
+  margin: 0;
+}
+.picker-ask {
+  font-size: 1.1rem;
+  margin: 8px 0 4px;
+}
 .sprite-sheet-view {
   overflow: auto;
-  max-height: 360px;
   margin: 8px 0;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: repeating-conic-gradient(#2a2539 0% 25%, #221e2e 0% 50%) 50% / 16px 16px;
 }
+.sprite-sheet-area {
+  position: relative;
+  margin: 0 auto;
+  /* Dragging draws a box, rather than scrolling or selecting. */
+  touch-action: none;
+  user-select: none;
+}
 .sprite-sheet-view img {
   display: block;
   image-rendering: pixelated;
+}
+.pick-band {
+  position: absolute;
+  border: 2px dashed var(--accent);
+  background: rgba(224, 180, 76, 0.12);
+  pointer-events: none;
 }
 .sprite-box {
   position: absolute;
