@@ -1550,3 +1550,28 @@ button.danger {
   min-height: 32px;
   align-items: center;
 }
+/* The round token, framed by dragging. */
+.token-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+}
+.token-editor canvas {
+  width: 128px;
+  height: 128px;
+  cursor: grab;
+  touch-action: none;
+}
+.token-editor canvas:active {
+  cursor: grabbing;
+}
+.token-editor input[type='range'] {
+  width: 128px;
+}
+.token-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+}

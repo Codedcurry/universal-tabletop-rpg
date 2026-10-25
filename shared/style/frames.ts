@@ -1,4 +1,5 @@
 import { CLIPS, type Clip } from '../anim';
+import type { SpriteDirection } from '../camera';
 import type { Pixels, SheetLayout, SheetRow } from './sheet';
 
 /**
@@ -6,7 +7,8 @@ import type { Pixels, SheetLayout, SheetRow } from './sheet';
  * from one view (like a classic battle sheet). Find each sprite, line the
  * chosen frames up by their feet in square cells (so a sword or spear
  * sticking out doesn't make the body jump), and lay them out as a standard
- * sheet: one row per animation, the other side mirrored.
+ * sheet: a row per animation and view (side, front, back), the other side
+ * mirrored.
  */
 
 export interface Box {
@@ -145,27 +147,47 @@ export function planCells(image: Pixels, frames: readonly Box[]): { size: number
   };
 }
 
+/** Which way picked frames look: from the side (mirrored for the other side), from the front, or from the back. */
+export type View = 'side' | 'front' | 'back';
+export const VIEWS: readonly View[] = ['side', 'front', 'back'];
+
+/** How many frames were picked for each animation, from each view. */
+export type FrameCounts = Readonly<Partial<Record<Clip, Readonly<Partial<Record<View, number>>>>>>;
+
+/** The rows of an assembled sheet, top to bottom: by animation (in the usual order), then side, front, back. */
+export function sheetRows(counts: FrameCounts): { clip: Clip; view: View; frames: number }[] {
+  return CLIPS.flatMap((clip) => VIEWS.flatMap((view) => ((counts[clip]?.[view] ?? 0) > 0 ? [{ clip, view, frames: counts[clip]?.[view] ?? 0 }] : [])));
+}
+
+/** Which views stand in for each direction, best first. */
+const STAND_INS: Readonly<Record<SpriteDirection, readonly View[]>> = {
+  down: ['front', 'side', 'back'],
+  up: ['back', 'side', 'front'],
+  left: ['side', 'front', 'back'],
+  right: ['side', 'front', 'back'],
+};
+
 /**
- * The standard layout for picked frames: one row per animation (in the usual
- * order), its frames across; every direction uses that row, mirrored for the
- * side the sprites don't face. Throws without idle frames.
+ * The standard layout for picked frames: a row per animation and view (see
+ * `sheetRows`), its frames across. Facing down uses the front view, up the
+ * back, left and right the side (mirrored for the side the sprites don't
+ * face); a missing view is stood in for by another. Throws without idle frames.
  */
-export function assembleLayout(
-  counts: Readonly<Partial<Record<Clip, number>>>,
-  frameSize: number,
-  faces: 'left' | 'right',
-  bodySize?: number,
-): SheetLayout {
-  if (!(counts.idle && counts.idle > 0)) throw new Error('Pick at least one idle frame');
-  const clips: Partial<Record<Clip, Record<'down' | 'left' | 'right' | 'up', SheetRow>>> = {};
-  let row = 0;
+export function assembleLayout(counts: FrameCounts, frameSize: number, faces: 'left' | 'right', bodySize?: number): SheetLayout {
+  const rows = sheetRows(counts);
+  if (!rows.some((row) => row.clip === 'idle')) throw new Error('Pick at least one idle frame');
+  const clips: Partial<Record<Clip, Record<SpriteDirection, SheetRow>>> = {};
   for (const clip of CLIPS) {
-    const frames = counts[clip] ?? 0;
-    if (frames < 1) continue;
-    const plain = { row, frames, mirror: false };
-    const flipped = { row, frames, mirror: true };
-    clips[clip] = { down: plain, up: plain, left: faces === 'left' ? plain : flipped, right: faces === 'right' ? plain : flipped };
-    row++;
+    const own = rows.flatMap((row, index) => (row.clip === clip ? [{ ...row, index }] : []));
+    if (own.length === 0) continue;
+    const entry = {} as Record<SpriteDirection, SheetRow>;
+    for (const direction of ['down', 'left', 'right', 'up'] as const) {
+      const view = STAND_INS[direction].find((candidate) => own.some((row) => row.view === candidate)) as View;
+      const row = own.find((candidate) => candidate.view === view)!;
+      const flipped = view === 'side' && (direction === 'left' || direction === 'right') && direction !== faces;
+      entry[direction] = { row: row.index, frames: row.frames, mirror: flipped };
+    }
+    clips[clip] = entry;
   }
   return bodySize === undefined ? { frameSize, clips } : { frameSize, clips, bodySize };
 }

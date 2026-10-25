@@ -195,6 +195,36 @@ test('the DM picks frames from a free-form sheet in a pop-up window, by box or b
   await expect(picker.getByRole('img', { name: /preview/i })).toBeVisible();
   await expect(picker.getByRole('img', { name: 'Round token' })).toBeVisible();
 
+  // A front view of idle: its own frames, counted under the view.
+  await picker.getByRole('combobox', { name: /^Animation/ }).selectOption('idle');
+  await picker.getByRole('combobox', { name: /^View/ }).selectOption('front');
+  await expect(picker).toContainText('Drag a box around the idle frames (front view (facing you))');
+  await expect(frames).toHaveCount(0);
+  await picker.getByRole('button', { name: 'Sprite 5' }).click();
+  await expect(picker.getByRole('combobox', { name: /^View/ })).toContainText('front view (facing you) (1)');
+
+  // Idle plays slower.
+  await picker.getByLabel('idle speed (frames a second)').fill('4');
+
+  // The token: any sprite, framed by dragging and zooming.
+  await picker.getByRole('button', { name: 'Choose token frame' }).click();
+  await expect(picker).toContainText('Click the sprite to use for the token');
+  await picker.getByRole('button', { name: 'Sprite 3' }).click();
+  await expect(picker).toContainText('Drag a box around');
+  await expect(frames).toHaveCount(1); // the token pick didn't add a frame
+  const token = picker.getByRole('img', { name: 'Round token' });
+  const framing = () => token.evaluate((canvas) => (canvas as HTMLCanvasElement).toDataURL());
+  const before = await framing();
+  const spot = (await token.boundingBox())!;
+  await dm.mouse.move(spot.x + 64, spot.y + 64);
+  await dm.mouse.down();
+  await dm.mouse.move(spot.x + 30, spot.y + 90, { steps: 5 });
+  await dm.mouse.up();
+  await expect.poll(framing).not.toBe(before);
+  const moved = await framing();
+  await picker.getByLabel('Token zoom').fill('200');
+  await expect.poll(framing).not.toBe(moved);
+
   await picker.getByRole('button', { name: 'Use for Goblin' }).click();
   await expect(picker).toHaveCount(0);
   await expect(ana.getByTestId('token').filter({ hasText: 'Goblin' })).toHaveAttribute('data-art', 'custom');

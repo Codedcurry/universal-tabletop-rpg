@@ -69,11 +69,18 @@ describe('character art', () => {
     expect(withCharacter(art, 'goblin', null).characters).toEqual({});
   });
 
+  it('keeps animation speeds and the body size', () => {
+    const art = withCharacter(EMPTY_ART, 'goblin', { ...character, layout: { ...layout, bodySize: 12, fps: { idle: 4 } } });
+    expect(validateCustomArt(JSON.parse(JSON.stringify(art)))).toEqual({ ok: true, art });
+  });
+
   it.each<[string, unknown]>([
     ['a row past the bottom of the sheet', { ...layout, clips: { idle: { ...layout.clips.idle, up: { row: 4, frames: 2, mirror: false } } } }],
     ['more frames than the sheet is wide', { ...layout, clips: { idle: { ...layout.clips.idle, down: { row: 0, frames: 3, mirror: false } } } }],
     ['an animation that doesn\'t exist', { ...layout, clips: { ...layout.clips, dance: layout.clips.idle } }],
     ['no idle animation', { ...layout, clips: {} }],
+    ['an animation speed out of range', { ...layout, fps: { idle: 0 } }],
+    ['a body taller than the frames', { ...layout, bodySize: 17 }],
   ])('refuses a layout with %s', (_name, badLayout) => {
     const art = { ...EMPTY_ART, characters: { goblin: { ...character, layout: badLayout } } };
     expect(validateCustomArt(art).ok).toBe(false);

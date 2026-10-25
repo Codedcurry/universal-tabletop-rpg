@@ -104,6 +104,14 @@ describe('frameAt', () => {
     expect(frameAt(layout, 'walk', 'down', 4 * 125 + 10)?.column).toBe(0);
   });
 
+  it('plays each animation at the speed the sheet gives it', () => {
+    const slow = { ...layout, fps: { walk: 2 } };
+    expect(frameAt(slow, 'walk', 'down', 400)?.column).toBe(0);
+    expect(frameAt(slow, 'walk', 'down', 600)?.column).toBe(1);
+    // Others keep the default 8 a second.
+    expect(frameAt(slow, 'idle', 'down', 130)?.column).toBe(1);
+  });
+
   it('holds the last frame of a one-off animation instead of looping', () => {
     expect(frameAt(layout, 'walk', 'down', 10_000, { loop: false })?.column).toBe(3);
   });

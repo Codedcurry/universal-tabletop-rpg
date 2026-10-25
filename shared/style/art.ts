@@ -1,5 +1,5 @@
 import { CLIPS } from '../anim';
-import type { SheetLayout } from './sheet';
+import { MAX_FPS, MIN_FPS, type SheetLayout } from './sheet';
 
 /**
  * The DM's own art for a game: imported tile textures and characters'
@@ -110,6 +110,12 @@ function layoutProblem(layout: unknown, image: ImageAsset): string | null {
   const rows = Math.floor(image.height / frame);
   const columns = Math.floor(image.width / frame);
   if (!isObject(layout.clips.idle)) return 'the sheet has no idle animation';
+  if (layout.fps !== undefined) {
+    if (!isObject(layout.fps)) return 'the animation speeds are invalid';
+    for (const fps of Object.values(layout.fps)) {
+      if (typeof fps !== 'number' || !(fps >= MIN_FPS && fps <= MAX_FPS)) return 'an animation speed is invalid';
+    }
+  }
   for (const [clip, directions] of Object.entries(layout.clips)) {
     if (!(CLIPS as readonly string[]).includes(clip)) return `"${clip}" is not an animation`;
     if (!isObject(directions)) return `the ${clip} animation is broken`;

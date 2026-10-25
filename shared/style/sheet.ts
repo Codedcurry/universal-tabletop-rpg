@@ -15,8 +15,10 @@ export const SHEET_DIRECTIONS: readonly SpriteDirection[] = ['down', 'left', 'ri
 /** Frame sizes the importer tries, largest first. */
 const FRAME_SIZES = [128, 96, 64, 48, 32, 24, 16];
 const MAX_COLUMNS = 16;
-/** Frames per second when an animation plays. */
-const FRAME_MS = 125;
+/** Frames per second when an animation plays, unless the sheet says otherwise. */
+export const DEFAULT_FPS = 8;
+export const MIN_FPS = 1;
+export const MAX_FPS = 30;
 
 export interface SheetRow {
   /** The sheet row to draw from (0 is the top). */
@@ -34,6 +36,8 @@ export interface SheetLayout {
    * the whole frame, matches other characters' height.
    */
   readonly bodySize?: number;
+  /** How fast animations play, in frames per second, where not the default 8. */
+  readonly fps?: Readonly<Partial<Record<Clip, number>>>;
   /** The animations the sheet has, each with a row for every direction. */
   readonly clips: Readonly<Partial<Record<Clip, Readonly<Record<SpriteDirection, SheetRow>>>>>;
 }
@@ -138,7 +142,8 @@ export function sliceSheet(image: Pixels, frameSize: number): { layout: SheetLay
 /**
  * The frame of an animation to show `elapsedMs` after it started, or null if
  * the sheet doesn't have that animation (the fallback motion plays instead).
- * Looping by default; a one-off holds its last frame.
+ * At the sheet's speed for that animation; looping by default, a one-off
+ * holds its last frame.
  */
 export function frameAt(
   layout: SheetLayout,
@@ -149,7 +154,8 @@ export function frameAt(
 ): { row: number; column: number; mirror: boolean } | null {
   const row = layout.clips[clip]?.[direction];
   if (!row) return null;
-  const step = Math.floor(Math.max(0, elapsedMs) / FRAME_MS);
+  const fps = layout.fps?.[clip] ?? DEFAULT_FPS;
+  const step = Math.floor((Math.max(0, elapsedMs) * fps) / 1000);
   const column = options.loop === false ? Math.min(step, row.frames - 1) : step % row.frames;
   return { row: row.row, column, mirror: row.mirror };
 }

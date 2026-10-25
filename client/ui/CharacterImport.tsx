@@ -2,22 +2,22 @@ import { type ChangeEvent, useMemo, useState } from 'react';
 import { CLIPS, type Clip } from '@shared/anim';
 import type { SpriteDirection } from '@shared/camera';
 import type { HostSession } from '@shared/net';
-import { type ImageAsset, MAX_IMAGE_CHARS, MAX_IMAGE_SIDE } from '@shared/style/art';
-import { SHEET_DIRECTIONS, type SheetLayout, guessFrameSize, sliceSheet } from '@shared/style/sheet';
+import { MAX_IMAGE_CHARS, MAX_IMAGE_SIDE } from '@shared/style/art';
+import { DEFAULT_FPS, SHEET_DIRECTIONS, type SheetLayout, guessFrameSize, portraitRect, sliceSheet } from '@shared/style/sheet';
 import { FramePicker } from './FramePicker';
-import { Preview, type Sheet, loadSheet, makeToken } from './spritePreview';
+import { type Crop, Preview, type Sheet, SpeedField, TokenEditor, loadSheet, makeToken, withSpeeds } from './spritePreview';
 
 // Importing a character's sprite sheet in the Art tab: choose who it's for
 // (a kind of monster, or one creature), pick the PNG, and the sheet is
 // sliced (frame size guessed, frames counted per row), previewed playing
-// any animation in any direction, with friendly warnings and a round token
-// cut from the portrait, before it's used. A sheet that isn't laid out that
+// any animation in any direction at a speed of the DM's choosing, with
+// friendly warnings and a round token (cut from the portrait, framed by
+// dragging), before it's used. A sheet that isn't laid out that
 // way (sprites of any size, anywhere) opens in the frame picker instead.
 
 interface Sliced {
   readonly layout: SheetLayout;
   readonly warnings: readonly string[];
-  readonly token: ImageAsset;
 }
 
 export interface ArtTarget {
@@ -37,6 +37,9 @@ export function CharacterImport({ session, targets }: { session: HostSession; ta
   const [frameSize, setFrameSize] = useState(32);
   const [clip, setClip] = useState<Clip>('idle');
   const [direction, setDirection] = useState<SpriteDirection>('down');
+  const [speeds, setSpeeds] = useState<Partial<Record<Clip, number>>>({});
+  /** The token's framing, once the DM moves it; until then, the portrait. */
+  const [crop, setCrop] = useState<Crop | null>(null);
   const [error, setError] = useState<string | null>(null);
   const target = targets.find((entry) => entry.key === targetKey) ?? targets[0];
 
@@ -45,12 +48,15 @@ export function CharacterImport({ session, targets }: { session: HostSession; ta
     if (!sheet) return { sliced: null, sliceError: null };
     try {
       const { layout, warnings } = sliceSheet(sheet.pixels, frameSize);
-      return { sliced: { layout, warnings, token: makeToken(sheet.element, layout) }, sliceError: null };
+      return { sliced: { layout, warnings }, sliceError: null };
     } catch (caught) {
       return { sliced: null, sliceError: caught instanceof Error ? caught.message : String(caught) };
     }
   }, [sheet, frameSize]);
   const clips = sliced ? (CLIPS.filter((entry) => sliced?.layout.clips[entry]) as Clip[]) : [];
+  const portrait = sliced ? portraitRect(sliced.layout) : null;
+  const layout = sliced ? withSpeeds(sliced.layout, speeds) : null;
+  const showing = clips.includes(clip) ? clip : 'idle';
 
   async function choose(event: ChangeEvent<HTMLInputElement>, mode: 'grid' | 'pick') {
     const file = event.target.files?.[0];
@@ -70,6 +76,8 @@ export function CharacterImport({ session, targets }: { session: HostSession; ta
       setFrameSize(guessFrameSize(loaded.image.width, loaded.image.height, loaded.pixels) ?? 32);
       setClip('idle');
       setDirection('down');
+      setSpeeds({});
+      setCrop(null);
       setSheet(loaded);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
@@ -128,7 +136,16 @@ export function CharacterImport({ session, targets }: { session: HostSession; ta
           <div className="row">
             <label>
               <span>Frame size</span>
-              <input type="number" min={4} max={256} value={frameSize} onChange={(event) => setFrameSize(Number(event.target.value))} />
+              <input
+                type="number"
+                min={4}
+                max={256}
+                value={frameSize}
+                onChange={(event) => {
+                  setFrameSize(Number(event.target.value));
+                  setCrop(null);
+                }}
+              />
             </label>
             {sliced && (
               <>
@@ -152,15 +169,16 @@ export function CharacterImport({ session, targets }: { session: HostSession; ta
                     ))}
                   </select>
                 </label>
+                <SpeedField clip={showing} fps={speeds[showing] ?? DEFAULT_FPS} onChange={(fps) => setSpeeds((all) => ({ ...all, [showing]: fps }))} />
               </>
             )}
           </div>
           {sliceError && <p className="field-error">{sliceError}</p>}
-          {sliced && (
+          {sliced && layout && portrait && (
             <>
               <div className="row sheet-previews">
-                <Preview source={sheet.element} layout={sliced.layout} clip={clips.includes(clip) ? clip : 'idle'} direction={direction} />
-                <img src={sliced.token.dataUrl} alt="Round token" className="token-preview" />
+                <Preview source={sheet.element} layout={layout} clip={showing} direction={direction} />
+                <TokenEditor source={sheet.element} crop={crop ?? portrait} base={portrait.size} onChange={setCrop} />
                 <div className="grow">
                   <p className="muted">
                     {sliced.layout.frameSize}-pixel frames · animations: {clips.join(', ')}
@@ -178,8 +196,8 @@ export function CharacterImport({ session, targets }: { session: HostSession; ta
             <button
               type="button"
               className="primary"
-              disabled={!sliced}
-              onClick={() => sliced && apply(target.key, { image: sheet.image, layout: sliced.layout, token: sliced.token })}
+              disabled={!layout}
+              onClick={() => layout && portrait && apply(target.key, { image: sheet.image, layout, token: makeToken(sheet.element, crop ?? portrait) })}
             >
               Use for {target.name}
             </button>
