@@ -62,11 +62,8 @@ test('desktops start on High, and the choice is remembered', async ({ browser })
     await dm.waitForTimeout(300);
   }
   await pick(dm, 'medium');
-  await dm.reload();
-  await dm.getByLabel('Your name').fill('Dana');
-  await dm.getByRole('button', { name: 'Host a game' }).click();
-  await dm.getByRole('button', { name: 'New map' }).click();
-  await dm.getByRole('group', { name: 'New map' }).getByRole('button', { name: 'Create' }).click();
+  await dm.reload(); // the game carries on by itself after a reload
+  await expect(dm.getByTestId('map-summary')).toBeVisible({ timeout: 20_000 });
   await expect(graphics(dm)).toHaveValue('medium');
   expect(errors).toEqual([]);
 });

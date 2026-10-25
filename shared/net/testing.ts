@@ -1,4 +1,5 @@
 import type { CombatEvent } from '../combat';
+import type { SavedGame } from './saved';
 import type { Cell } from '../grid';
 import type { RandomSource } from '../random';
 import { scriptedRandom } from '../random';
@@ -62,7 +63,7 @@ export interface JoinOptions {
   readonly token?: string;
 }
 
-export function createTestNetwork(options: { dmTitle?: string } = {}) {
+export function createTestNetwork(options: { dmTitle?: string; restore?: SavedGame } = {}) {
   let queue: Envelope[] = [];
   let held: Envelope[] = [];
   let interceptor: Interceptor | null = null;
@@ -87,6 +88,7 @@ export function createTestNetwork(options: { dmTitle?: string } = {}) {
     ...(options.dmTitle === undefined ? {} : { dmTitle: options.dmTitle }),
     onCombatEvents: (events) => dmCombatEvents.push(events),
   });
+  if (options.restore) host.restore(options.restore);
 
   function deliver(envelope: Envelope): void {
     if (!open.has(envelope.connectionId)) return;

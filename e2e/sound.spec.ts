@@ -69,8 +69,8 @@ test('sound effects play on clicks and dice, and the volume setting silences the
   expect(await started(page)).toBe(quiet);
 
   // Remembered on this device.
-  await page.reload();
-  await host(page);
+  await page.reload(); // the game carries on by itself after a reload
+  await expect(page.getByTestId('map-summary')).toBeVisible({ timeout: 20_000 });
   await expect((await openSettings(page)).getByLabel('Sound effects')).toHaveValue('0');
 });
 

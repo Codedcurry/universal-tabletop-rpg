@@ -1363,3 +1363,37 @@ button.danger {
     height: 40vh;
   }
 }
+
+/* Saved games on the home screen. */
+.saved-games ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.saved-games li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.saved-games li > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.room-code-small {
+  font-family: ui-monospace, monospace;
+  letter-spacing: 0.12em;
+  color: var(--accent);
+}
+
+/* A note to the DM about the game (e.g. it moved to a new room). */
+.notice {
+  border-color: var(--accent);
+  color: var(--accent);
+}

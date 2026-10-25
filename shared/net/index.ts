@@ -4,3 +4,4 @@ export { ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, createRoomCode, normalizeRoomCode
 export { applyUpdate, canSee, insertLogEntry, isPublic, viewFor } from './state';
 export { type DmNote, HostSession, type HostOptions, characterIdFor } from './host';
 export { ClientSession, type ClientOptions, type ClientStatus } from './client';
+export { SAVED_GAME_FORMAT, SAVED_GAME_VERSION, type SavedGame, type SavedGameValidation, type SavedPlayer, validateSavedGame } from './saved';

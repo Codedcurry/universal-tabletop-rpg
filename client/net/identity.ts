@@ -50,3 +50,8 @@ export const saveName = (name: string): void => write(local, NAME_KEY, name);
 /** The room this tab last joined, so a reload rejoins it automatically. */
 export const joinedRoom = (): string | null => read(session, JOINED_KEY);
 export const rememberJoinedRoom = (code: string): void => write(session, JOINED_KEY, code);
+
+const HOSTED_KEY = 'ttrpg.hostedRoom';
+/** The room this tab is hosting, so a reload carries the game on automatically. */
+export const hostedRoom = (): string | null => read(session, HOSTED_KEY);
+export const rememberHostedRoom = (code: string): void => write(session, HOSTED_KEY, code);

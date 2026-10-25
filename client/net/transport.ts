@@ -6,6 +6,7 @@ import {
   FrameAssembler,
   HEARTBEAT_INTERVAL_MS,
   HostSession,
+  type SavedGame,
   createRoomCode,
   reconnectDelay,
   roomPeerId,
@@ -45,10 +46,21 @@ export interface HostCallbacks {
   onCombatEvents?(events: readonly CombatEvent[]): void;
 }
 
+export interface HostOptions {
+  /** Carry on a saved game, in its old room (so players' links still work). */
+  readonly resume?: SavedGame;
+  /** Host under a new code even when resuming (its old room is open somewhere else). */
+  readonly newCode?: boolean;
+}
+
+/** How long to keep asking for a resumed game's old room code: the signaling server can hold it a little while after a reload. */
+const RESUME_RETRIES = 5;
+const RESUME_RETRY_MS = 1500;
+
 /** Registers a room with the signaling server and accepts players into it. */
-export function hostGame(callbacks: HostCallbacks, attempt = 0): Promise<HostedGame> {
+export function hostGame(callbacks: HostCallbacks, options: HostOptions = {}, attempt = 0): Promise<HostedGame> {
   return new Promise((resolve, reject) => {
-    const code = createRoomCode(secureRandom);
+    const code = options.resume && !options.newCode ? options.resume.code : createRoomCode(secureRandom);
     const peer = new Peer(roomPeerId(code), peerOptions());
     const connections = new Map<string, DataConnection>();
     let opened = false;
@@ -68,6 +80,7 @@ export function hostGame(callbacks: HostCallbacks, attempt = 0): Promise<HostedG
       onChange: callbacks.onChange,
       ...(callbacks.onCombatEvents ? { onCombatEvents: callbacks.onCombatEvents } : {}),
     });
+    if (options.resume) session.restore(options.resume);
 
     peer.on('open', () => {
       opened = true;
@@ -110,8 +123,14 @@ export function hostGame(callbacks: HostCallbacks, attempt = 0): Promise<HostedG
     peer.on('error', (error) => {
       if (opened) return;
       peer.destroy();
-      if (error.type === 'unavailable-id' && attempt < 5) {
-        hostGame(callbacks, attempt + 1).then(resolve, reject);
+      if (error.type === 'unavailable-id' && options.resume && !options.newCode && attempt < RESUME_RETRIES) {
+        // Our own old room, still held for a moment after a reload: wait and ask again.
+        setTimeout(() => hostGame(callbacks, options, attempt + 1).then(resolve, reject), RESUME_RETRY_MS);
+      } else if (error.type === 'unavailable-id' && options.resume && !options.newCode) {
+        // Still taken: the game is open somewhere else. Carry on under a new room code.
+        hostGame(callbacks, { ...options, newCode: true }).then(resolve, reject);
+      } else if (error.type === 'unavailable-id' && attempt < 5) {
+        hostGame(callbacks, options, attempt + 1).then(resolve, reject);
       } else {
         reject(error);
       }

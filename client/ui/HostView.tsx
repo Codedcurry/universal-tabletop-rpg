@@ -30,9 +30,13 @@ const TABS: { id: Tab; label: string }[] = [
 interface Props {
   readonly game: HostedGame;
   readonly combatEvents: { readonly events: readonly CombatEvent[]; readonly key: number } | null;
+  /** When the game was last saved in this browser (null: not yet). */
+  readonly lastSaved?: number | null;
+  /** Something the DM should know about this game (e.g. it moved to a new room). */
+  readonly notice?: string | null;
 }
 
-export function HostView({ game, combatEvents }: Props) {
+export function HostView({ game, combatEvents, lastSaved = null, notice = null }: Props) {
   const { session, code } = game;
   const state = session.snapshot();
   const [title, setTitle] = useState(state.dmTitle);
@@ -86,6 +90,17 @@ export function HostView({ game, combatEvents }: Props) {
       if (!session.snapshot().map) session.setMap(demoMap);
       session.startCombat(demoFight(session));
     });
+  }
+
+  /** Downloads the whole game as a file: a backup, or to carry on from another computer. */
+  function saveGameFile() {
+    const blob = new Blob([JSON.stringify(session.saveGame(code))], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `game-${code}-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   async function copyLink() {
@@ -143,8 +158,17 @@ export function HostView({ game, combatEvents }: Props) {
           <button type="button" onClick={copyLink}>
             {copied ? 'Copied!' : 'Copy link'}
           </button>
+          <p className="muted save-status" data-testid="save-status" role="status">
+            {lastSaved ? `✓ Saved ${new Date(lastSaved).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : 'Not saved yet'}
+          </p>
         </div>
       </header>
+
+      {notice && (
+        <p className="card notice" role="status" data-testid="host-notice">
+          {notice}
+        </p>
+      )}
 
       <div className={`dm-layout${toolsOpen ? '' : ' tools-hidden'}`}>
         <section className="card map-card" ref={mapCard}>
@@ -243,6 +267,11 @@ export function HostView({ game, combatEvents }: Props) {
                 <input type="checkbox" checked={state.fogOfWar} onChange={(event) => session.setFogOfWar(event.target.checked)} />
                 Fog of war
               </label>
+              <h3>Saving</h3>
+              <p className="muted">This game saves itself in this browser as you play; a reload carries on where you were.</p>
+              <button type="button" onClick={saveGameFile} title="A backup you can load on any computer (from the home screen)">
+                Save game file
+              </button>
               <h3>Players</h3>
               <Players players={state.players} />
             </div>

@@ -21,6 +21,7 @@ import {
 } from '../combat';
 import { DiceNotationError, RollReplayError, type RollResult, replayRoll, roll } from '../dice';
 import { type Cell, cellKey } from '../grid';
+import { SAVED_GAME_FORMAT, SAVED_GAME_VERSION, type SavedGame } from './saved';
 import { type MapPatch, applyPatch, isEmptyPatch } from '../editor';
 import { type MapData, type WorldMap, createWorldMap } from '../map';
 import type { RandomSource } from '../random';
@@ -130,6 +131,54 @@ export class HostSession {
   // Views
 
   /** The DM's view: everything, including whispers and hidden rolls. */
+  // -------------------------------------------------------------------------
+  // Saving
+
+  /** Everything needed to carry on later (see saved.ts), under the room code `code`. */
+  saveGame(code: string): SavedGame {
+    const { dmTitle, rollMode, playersControlOwn, fogOfWar, system, map, combat, log } = this.state;
+    return {
+      format: SAVED_GAME_FORMAT,
+      version: SAVED_GAME_VERSION,
+      code,
+      savedAt: this.options.now(),
+      state: { dmTitle, rollMode, playersControlOwn, fogOfWar, system, map, combat, log },
+      players: this.players.map(({ id, token, name, character, granted }) => ({ id, token, name, character, granted: [...granted] })),
+      notes: this.notes(),
+      nextPlayerNumber: this.nextPlayerNumber,
+      nextSeq: this.nextSeq,
+    };
+  }
+
+  /**
+   * Carries on a saved game (call before anyone connects). Players start out
+   * away; each gets their own seat back when they return with their token.
+   */
+  restore(saved: SavedGame): void {
+    const { state } = saved;
+    this.state = {
+      ...this.state,
+      dmTitle: state.dmTitle,
+      rollMode: state.rollMode,
+      playersControlOwn: state.playersControlOwn,
+      fogOfWar: state.fogOfWar,
+      system: state.system,
+      map: state.map,
+      combat: state.combat,
+      log: [...state.log],
+    };
+    this.worldMap = state.map ? createWorldMap(state.map) : null;
+    this.players.length = 0;
+    for (const player of saved.players) {
+      this.players.push({ ...player, granted: [...player.granted], connectionId: null });
+    }
+    this.dmNotes.clear();
+    for (const note of saved.notes) this.dmNotes.set(cellKey(note.cell), note);
+    this.nextPlayerNumber = saved.nextPlayerNumber;
+    this.nextSeq = saved.nextSeq;
+    this.publishPlayers();
+  }
+
   snapshot(): SessionSnapshot {
     return this.state;
   }

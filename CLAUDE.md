@@ -119,6 +119,12 @@ A PC- and mobile-friendly take on Tabletop Simulator, built specifically for tab
 - `client/dice/simulate.ts` (cannon-es): a seeded throw into the walled, lidded `TRAY`, recorded at 60 frames a second with collision moments (for the clacks). Each piece stops for good once still and lying flat; one left leaning is nudged toward the middle (up to 5 times), and anything still leaning at the end tips onto its nearest face in a short closing step. At most 4 s (typically 1.5-3.5 s).
 - `client/render/DiceView.ts` draws the tray and the dice (flat-shaded, numbers on a per-die texture after relabelling) and plays the recording at the dice-speed setting (Off: dice already at rest). `client/ui/DiceBox.tsx` replaces the old 2D animation: same queue, tap to skip, total in the header, crit glow and sting; rendered into the page body so nothing covers it.
 
+### Saving (step 12)
+- `shared/net/saved.ts`: `SavedGame` (format `universal-tabletop-rpg/game`, version 1): room code, settings, system, map, fight, log, each player's seat (with their secret token, so returning players get their own seats; the file is the DM's alone, notes included), and the counters. `validateSavedGame` checks files and storage before use. `HostSession.saveGame(code)` / `restore(saved)`; restored players start away.
+- `client/storage/savedGames.ts`: IndexedDB (`universal-tabletop-rpg` / `games`, keyed by room code); every call fails quietly when storage is blocked. App autosaves within 0.8 s of any change (a stream of changes doesn't postpone it) and when the tab is hidden or closed; the DM header shows "✓ Saved".
+- A DM tab remembers the room it hosts (sessionStorage), so a reload resumes the game automatically in the same room; players' pages reconnect to their seats. The home screen lists saved games (Resume, Delete with a confirm) and loads game files; the Session tab saves one. Resuming retries the old room code briefly (a reload can leave it held for a moment); if it stays taken (the game is open elsewhere) the game carries on under a new code and the DM is told.
+- The dice box can be pinned open (Dice box button, per device): it shows the last roll at rest, docks in a corner, and drags by its header.
+
 ### Sound (step 11)
 - `shared/audio`: `combatSounds(timeline)` times sounds to the animation (a step per tile walked, swing/shoot/spell/item as the attack starts, hit/miss/block at impact, downed, heal, level-up, one victory fanfare); `diceSounds(plan)` (rattle, a clack per die as it lands, a sting for a natural max or 1; silent with dice animation off); `musicScore(seed)`: a calm C-major loop (pad chords from a set of progressions, bass roots, a pentatonic melody, one note at a time), tested to stay in key.
 - `client/audio/soundEngine.ts`: the placeholder sound pack, every sound synthesized with Web Audio (oscillators, filtered noise), so there are no files to load or credit. It wakes on the first press or key (browser rule), plays background music with a look-ahead scheduler, and reads the ⚙ volumes (Sound effects, default 60; Music, default 0 = off). Buttons and tabs click softly; a player hears a chime when their turn comes.
@@ -128,7 +134,6 @@ A PC- and mobile-friendly take on Tabletop Simulator, built specifically for tab
 
 ### Known gaps (planned, not built yet)
 - Saved favorite rolls per character (optional in the spec) are not built yet.
-- The DM's session lives in memory: reloading the DM's page ends the game (storage is step 12). Use Export to keep a map. DM notes are lost on reload too.
 - No TURN relay configured yet; players on strict networks (some mobile carriers) may fail to connect. See `.env.example`.
 - House rules (build step 15). The DM can edit creatures directly (see DM tools), but rules themselves are not overridable yet.
 - Fog of war is not secret from a player inspecting their browser (see above); true secrecy would need per-player state from the host.
