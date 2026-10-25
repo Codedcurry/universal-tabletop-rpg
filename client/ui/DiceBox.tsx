@@ -59,12 +59,13 @@ export function DiceBox({ log, nameOf }: { log: readonly LogEntry[]; nameOf(id: 
   }, [log]);
 
   useEffect(() => {
-    if (showing || queue.length === 0) return;
+    // Pinned open, a finished roll in the tray makes way for the next one at once.
+    if ((showing && !(pinned && settled)) || queue.length === 0) return;
     const [next, ...rest] = queue as [RollEntry, ...RollEntry[]];
     setQueue(rest);
     setSettled(false);
     setShowing({ entry: next, plan: planRollAnimation(next.result, speed), rate: RATE[speed] });
-  }, [queue, showing, speed]);
+  }, [queue, showing, speed, pinned, settled]);
 
   const pieces = useMemo(() => (showing ? boxPieces(showing.plan) : null), [showing]);
   const lastRoll = useMemo(() => [...log].reverse().find((entry): entry is RollEntry => entry.kind === 'roll') ?? null, [log]);

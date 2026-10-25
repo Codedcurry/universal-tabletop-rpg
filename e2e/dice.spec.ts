@@ -156,3 +156,18 @@ test('the dice box can be opened any time, and stays open while pinned', async (
   await toggle.click();
   await expect(animation(ana).getByTestId('roll-total')).toHaveText(await lastRollTotal(ana));
 });
+
+test('with the dice box pinned open over an earlier roll, a new roll throws straight away', async ({ browser }) => {
+  const { ana } = await table(browser);
+  const panel = dicePanel(ana);
+  await panel.getByLabel('Dice to roll').fill('1d6');
+  await panel.getByRole('button', { name: 'Roll', exact: true }).click();
+  await expect(animation(ana)).toBeHidden({ timeout: 8_000 });
+  await panel.getByRole('button', { name: 'Dice box' }).click(); // opens on that roll, at rest
+  await expect(animation(ana)).toHaveAccessibleName(/rolled 1d6$/);
+
+  await panel.getByLabel('Dice to roll').fill('1d20');
+  await panel.getByRole('button', { name: 'Roll', exact: true }).click();
+  await expect(animation(ana)).toHaveAccessibleName(/rolled 1d20$/, { timeout: 2_000 });
+  await expect(animation(ana).getByTestId('roll-total')).toHaveText(await lastRollTotal(ana));
+});
