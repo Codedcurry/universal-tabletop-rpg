@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EMPTY_ART, MAX_IMAGE_CHARS, MAX_IMAGE_SIDE, tileWarnings, validateCustomArt, withTile } from './art';
+import { EMPTY_ART, MAX_IMAGE_CHARS, MAX_IMAGE_SIDE, tileWarnings, validateCustomArt, withCharacter, withTile } from './art';
 
 // The DM's own art for a game (tile textures now; characters later): plain,
 // checked data that is saved with the game and sent to every player.
@@ -45,5 +45,37 @@ describe('tileWarnings', () => {
   it('warns about odd sizes and very large images', () => {
     expect(tileWarnings(20, 20).join(' ')).toMatch(/16, 32, or 64/);
     expect(tileWarnings(512, 512).join(' ')).toMatch(/large/i);
+  });
+});
+
+describe('character art', () => {
+  const layout = {
+    frameSize: 16,
+    clips: {
+      idle: {
+        down: { row: 0, frames: 2, mirror: false },
+        left: { row: 1, frames: 2, mirror: false },
+        right: { row: 1, frames: 2, mirror: true },
+        up: { row: 3, frames: 2, mirror: false },
+      },
+    },
+  };
+  const character = { image: tile(32, 64), layout, token: tile(24, 24) };
+
+  it('adds (and removes) a character\'s sprite sheet and token, by art key', () => {
+    const art = withCharacter(EMPTY_ART, 'goblin', character);
+    expect(art.characters.goblin).toEqual(character);
+    expect(validateCustomArt(JSON.parse(JSON.stringify(art)))).toEqual({ ok: true, art });
+    expect(withCharacter(art, 'goblin', null).characters).toEqual({});
+  });
+
+  it.each<[string, unknown]>([
+    ['a row past the bottom of the sheet', { ...layout, clips: { idle: { ...layout.clips.idle, up: { row: 4, frames: 2, mirror: false } } } }],
+    ['more frames than the sheet is wide', { ...layout, clips: { idle: { ...layout.clips.idle, down: { row: 0, frames: 3, mirror: false } } } }],
+    ['an animation that doesn\'t exist', { ...layout, clips: { ...layout.clips, dance: layout.clips.idle } }],
+    ['no idle animation', { ...layout, clips: {} }],
+  ])('refuses a layout with %s', (_name, badLayout) => {
+    const art = { ...EMPTY_ART, characters: { goblin: { ...character, layout: badLayout } } };
+    expect(validateCustomArt(art).ok).toBe(false);
   });
 });

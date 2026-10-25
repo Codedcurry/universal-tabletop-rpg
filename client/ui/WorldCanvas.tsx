@@ -107,6 +107,7 @@ export function WorldCanvas(props: Props) {
   useEffect(() => viewRef.current?.setArtStyle(artStyle), [artStyle]);
   const customTiles = useMemo(() => Object.fromEntries(Object.entries(art.tiles).map(([terrain, image]) => [terrain, image.dataUrl])), [art]);
   useEffect(() => viewRef.current?.setCustomTiles(customTiles), [customTiles]);
+  useEffect(() => viewRef.current?.setCharacterArt(art.characters), [art.characters]);
   // Changes when the map is rebuilt in a new look, which clears the overlays drawn over it.
   const look = useMemo(() => `${artStyle}|${JSON.stringify(customTiles)}`, [artStyle, customTiles]);
 

@@ -71,3 +71,51 @@ test('the DM imports a tile texture, previews it, and every player sees it', asy
   await art.getByRole('button', { name: 'Reset grass tile' }).click();
   await expect(ana.getByTestId('world-canvas')).toHaveAttribute('data-custom-tiles', '');
 });
+
+/** A sprite sheet drawn in the page: 32-pixel frames, 2 across; idle (red) and walk (blue), 4 rows each. */
+async function spriteSheet(page: Page) {
+  const dataUrl = await page.evaluate(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 256;
+    const ctx = canvas.getContext('2d')!;
+    for (let row = 0; row < 8; row++) {
+      for (let column = 0; column < 2; column++) {
+        ctx.fillStyle = row < 4 ? '#d33' : '#36c';
+        ctx.fillRect(column * 32 + 8, row * 32 + 4 + column * 2, 16, 26);
+        ctx.fillStyle = '#fdd';
+        ctx.fillRect(column * 32 + 11, row * 32 + 6, 10, 8); // a face
+      }
+    }
+    return canvas.toDataURL('image/png');
+  });
+  return { name: 'goblin-sheet.png', mimeType: 'image/png', buffer: Buffer.from(dataUrl.split(',')[1]!, 'base64') };
+}
+
+test('the DM imports a character sprite sheet: sliced, previewed, with a round token, and players see it', async ({ browser }) => {
+  const { dm, ana } = await table(browser);
+  // A goblin on the map.
+  await dm.getByRole('tab', { name: 'Encounter' }).click();
+  const encounter = dm.getByRole('tabpanel', { name: 'Encounter' });
+  await encounter.getByLabel('Add').selectOption({ label: 'Goblin' });
+  await encounter.getByRole('button', { name: 'Place on map' }).click();
+  const box = (await dm.getByTestId('world-canvas').boundingBox())!;
+  await dm.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(ana.getByTestId('token').filter({ hasText: 'Goblin' })).toHaveAttribute('data-art', 'pack');
+
+  await dm.getByRole('tab', { name: 'Art' }).click();
+  const art = dm.getByRole('tabpanel', { name: 'Art' });
+  await art.getByLabel('Character').selectOption({ label: 'Goblin (every goblin)' });
+  await art.getByLabel('Import sprite sheet').setInputFiles(await spriteSheet(dm));
+  const preview = art.getByRole('group', { name: 'New sprite sheet' });
+  await expect(preview).toContainText('32-pixel frames');
+  await expect(preview).toContainText('idle, walk');
+  await expect(preview.getByRole('img', { name: /preview/i })).toBeVisible();
+  await expect(preview.getByRole('img', { name: 'Round token' })).toBeVisible();
+  await preview.getByRole('combobox', { name: /^Animation/ }).selectOption('walk');
+  await preview.getByRole('button', { name: 'Use for Goblin' }).click();
+
+  await expect(ana.getByTestId('token').filter({ hasText: 'Goblin' })).toHaveAttribute('data-art', 'custom');
+  await art.getByRole('button', { name: 'Reset goblin art' }).click();
+  await expect(ana.getByTestId('token').filter({ hasText: 'Goblin' })).toHaveAttribute('data-art', 'pack');
+});

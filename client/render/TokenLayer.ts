@@ -35,6 +35,8 @@ import {
   teamColor,
 } from '../style/placeholderSprites';
 import type { StylePack } from '../style/stylePack';
+import type { CharacterArt } from '@shared/style/art';
+import { artKeyFor, frameAt } from '@shared/style/sheet';
 import type { SceneEffects } from './SceneEffects';
 
 // Creatures on the map: a sprite that always faces the camera (2.5D) or a
@@ -78,6 +80,15 @@ interface Token {
   /** Where the token stands on the map when not walking. */
   home: Vector3;
   direction: SpriteDirection | null;
+  /** The DM's sprite sheet for this creature, if it has one (else the pack's figure). */
+  custom: CustomLook | null;
+}
+
+interface CustomLook {
+  readonly art: CharacterArt;
+  /** This token's own copy of the sheet texture, so its frame offsets are its own. */
+  readonly texture: Texture;
+  readonly available: ReadonlySet<Clip>;
 }
 
 interface Floater {
@@ -96,6 +107,7 @@ export class TokenLayer {
   private combat: CombatState | null = null;
   private topDown = false;
   private targets = new Set<string>();
+  private characterArt: Readonly<Record<string, CharacterArt>> = {};
   /** Creatures this viewer can't see (fog of war). */
   private hidden = new Set<string>();
   /** How fast actions play out (the viewer's combat animation setting). */
@@ -256,15 +268,25 @@ export class TokenLayer {
       const step = token.steps[0] && now >= token.steps[0].at ? token.steps[0] : null;
       if (token.steps.length > 0) animating = true;
 
+      const available = token.custom?.available ?? AVAILABLE;
+      const down = token.combatant.hp <= 0;
       let position = token.home;
-      let pose: Pose = proceduralPose(token.combatant.hp > 0 ? 'none' : 'tipOver', 1);
+      // Downed with downed frames of its own: those (held on the last), not the tip-over motion.
+      let pose: Pose = proceduralPose(down && !available.has('downed') ? 'tipOver' : 'none', 1);
+      // Which animation's frames to show, and for how long it has played.
+      let showing: { clip: Clip; elapsed: number; loop: boolean } = down && available.has('downed')
+        ? { clip: 'downed', elapsed: Number.POSITIVE_INFINITY, loop: false }
+        : { clip: 'idle', elapsed: now, loop: true };
       if (step) {
         const progress = step.duration > 0 ? (now - step.at) / step.duration : 1;
         if (step.clip === 'walk' && step.path && step.path.length > 1) position = this.alongPath(step.path, progress);
-        const resolved = resolveClip(AVAILABLE, step.clip);
+        const resolved = resolveClip(available, step.clip);
         if (resolved.kind === 'procedural') pose = proceduralPose(resolved.motion, progress);
+        else showing = { clip: step.clip, elapsed: now - step.at, loop: step.clip === 'walk' };
       }
-      this.applyPose(token, position, pose, cameraHeading);
+      // A sheet with more than one idle frame keeps breathing, so the view keeps drawing.
+      if (token.custom && (token.custom.art.layout.clips.idle?.down.frames ?? 1) > 1) animating = true;
+      this.applyPose(token, position, pose, cameraHeading, showing);
 
       // Name tag above the head; in top-down (north up), just north of the round token.
       const tagAnchor = this.topDown ? new Vector3(0, 0.05, -0.5 * this.style.cellSize) : new Vector3(0, SPRITE_H + 0.15, 0);
@@ -334,7 +356,13 @@ export class TokenLayer {
     return Vector3.Lerp(from, to, t - index);
   }
 
-  private applyPose(token: Token, position: Vector3, pose: Pose, cameraHeading: number): void {
+  private applyPose(
+    token: Token,
+    position: Vector3,
+    pose: Pose,
+    cameraHeading: number,
+    showing: { clip: Clip; elapsed: number; loop: boolean },
+  ): void {
     const facing = token.combatant.facing;
     const forward = new Vector3(Math.sin(facing), 0, -Math.cos(facing));
     const right = new Vector3(Math.cos(facing), 0, Math.sin(facing));
@@ -348,10 +376,60 @@ export class TokenLayer {
     token.disc.overlayAlpha = 0.6 * pose.red;
 
     const direction = spriteFacing(facing, cameraHeading);
+    if (token.custom) {
+      // The DM's sheet: point this token's texture at the right frame.
+      const { layout, image } = token.custom.art;
+      const frame = frameAt(layout, showing.clip, direction, showing.elapsed, { loop: showing.loop }) ?? frameAt(layout, 'idle', direction, showing.elapsed);
+      if (frame) {
+        const texture = token.custom.texture;
+        const width = layout.frameSize / image.width;
+        const height = layout.frameSize / image.height;
+        texture.uScale = frame.mirror ? -width : width;
+        texture.uOffset = (frame.column + (frame.mirror ? 1 : 0)) * width;
+        texture.vScale = height;
+        texture.vOffset = 1 - (frame.row + 1) * height;
+      }
+      return;
+    }
     if (direction !== token.direction) {
       token.direction = direction;
       token.material.diffuseTexture = this.figure(token.combatant.side, direction);
     }
+  }
+
+  /** The DM's character art, by art key; creatures use their own or their kind's. */
+  setCharacterArt(characters: Readonly<Record<string, CharacterArt>>): void {
+    this.characterArt = characters;
+    for (const token of this.tokens.values()) this.applyArt(token);
+  }
+
+  /** Puts a creature in its sprite sheet and round token if it has art, or back in the pack's figure. */
+  private applyArt(token: Token): void {
+    const key = artKeyFor(token.id, Object.keys(this.characterArt));
+    const art = key ? this.characterArt[key] : undefined;
+    token.label.dataset.art = art ? 'custom' : 'pack';
+    if (token.custom?.art === art) return;
+    token.custom?.texture.dispose();
+    if (!art) {
+      token.custom = null;
+      token.direction = null; // the pack's figure comes back on the next frame
+      token.sprite.scaling.x = 1;
+      (token.disc.material as StandardMaterial).diffuseTexture = token.discTexture;
+      return;
+    }
+    const texture = new Texture(art.image.dataUrl, this.scene, true, true, Texture.NEAREST_SAMPLINGMODE);
+    texture.hasAlpha = true;
+    texture.wrapU = Texture.CLAMP_ADDRESSMODE;
+    texture.wrapV = Texture.CLAMP_ADDRESSMODE;
+    token.material.diffuseTexture = texture;
+    // Square frames: a square sprite, as tall as the pack's figures.
+    token.sprite.scaling.x = SPRITE_H / SPRITE_W;
+    if (art.token) {
+      const round = new Texture(art.token.dataUrl, this.scene, true, true, Texture.TRILINEAR_SAMPLINGMODE);
+      round.hasAlpha = true;
+      (token.disc.material as StandardMaterial).diffuseTexture = round;
+    }
+    token.custom = { art, texture, available: new Set(Object.keys(art.layout.clips) as Clip[]) };
   }
 
   private figure(side: string, direction: SpriteDirection): DynamicTexture {
@@ -469,8 +547,10 @@ export class TokenLayer {
       steps: [],
       home: this.groundAt(combatant.position),
       direction: null,
+      custom: null,
     };
     this.tokens.set(id, token);
+    this.applyArt(token);
     return token;
   }
 

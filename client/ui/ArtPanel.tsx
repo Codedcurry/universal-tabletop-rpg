@@ -3,6 +3,7 @@ import type { HostSession } from '@shared/net';
 import { type ImageAsset, MAX_IMAGE_CHARS, MAX_IMAGE_SIDE, tileWarnings } from '@shared/style/art';
 import { PIXEL_TILE_SIZE, pixelTile } from '@shared/style/pixelTiles';
 import { TERRAINS } from '../style/stylePack';
+import { type ArtTarget, CharacterImport } from './CharacterImport';
 
 // The DM tools' Art tab: the game's own art. Each terrain shows its tile
 // (the DM's image, or the pack's pixel art); importing an image shows a
@@ -42,7 +43,12 @@ function readImage(file: File): Promise<ImageAsset> {
 }
 
 export function ArtPanel({ session }: { session: HostSession }) {
-  const art = session.snapshot().art;
+  const { art, system, combat } = session.snapshot();
+  // Who can get a sprite sheet: every kind of monster, and each creature on the map.
+  const targets: ArtTarget[] = [
+    ...(system?.monsters ?? []).map((monster) => ({ key: monster.id, label: `${monster.name} (every ${monster.name.toLowerCase()})`, name: monster.name })),
+    ...Object.entries(combat?.combatants ?? {}).map(([id, combatant]) => ({ key: id, label: `${combatant.sheet.name} (only this one)`, name: combatant.sheet.name })),
+  ];
   const [pending, setPending] = useState<Pending | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -129,6 +135,7 @@ export function ArtPanel({ session }: { session: HostSession }) {
           );
         })}
       </ul>
+      <CharacterImport session={session} targets={targets} />
     </div>
   );
 }

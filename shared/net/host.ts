@@ -22,7 +22,7 @@ import {
 import { DiceNotationError, RollReplayError, type RollResult, replayRoll, roll } from '../dice';
 import { type Cell, cellKey } from '../grid';
 import { SAVED_GAME_FORMAT, SAVED_GAME_VERSION, type SavedGame } from './saved';
-import { EMPTY_ART, type ImageAsset, validateCustomArt, withTile } from '../style/art';
+import { type CharacterArt, EMPTY_ART, type ImageAsset, validateCustomArt, withCharacter, withTile } from '../style/art';
 import { type MapPatch, applyPatch, isEmptyPatch } from '../editor';
 import { type MapData, type WorldMap, createWorldMap } from '../map';
 import type { RandomSource } from '../random';
@@ -288,6 +288,14 @@ export class HostSession {
   /** Sets (or, with null, removes) the DM's own texture for a terrain's tiles. Throws if the image won't do. */
   setTileArt(terrain: string, image: ImageAsset | null): void {
     const art = withTile(this.state.art, terrain, image);
+    const checked = validateCustomArt(art);
+    if (!checked.ok) throw new Error(checked.error);
+    this.publish({ kind: 'art', art });
+  }
+
+  /** Sets (or, with null, removes) a character's sprite sheet, by art key (a monster kind, or one creature). Throws if it won't do. */
+  setCharacterArt(key: string, character: CharacterArt | null): void {
+    const art = withCharacter(this.state.art, key, character);
     const checked = validateCustomArt(art);
     if (!checked.ok) throw new Error(checked.error);
     this.publish({ kind: 'art', art });

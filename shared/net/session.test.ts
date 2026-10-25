@@ -818,3 +818,25 @@ describe('custom art', () => {
     expect(restored.host.snapshot().art.tiles.stone).toEqual(grass);
   });
 });
+
+describe('character art', () => {
+  const sheet = { dataUrl: 'data:image/png;base64,iVBORw0KGgo=', width: 32, height: 64 };
+  const row = (r: number) => ({ row: r, frames: 2, mirror: false });
+  const goblinArt = { image: sheet, layout: { frameSize: 16, clips: { idle: { down: row(0), left: row(1), right: row(2), up: row(3) } } }, token: null };
+
+  it('sends a character\'s sprite sheet to every player, and removes it', () => {
+    const network = createTestNetwork();
+    const ana = network.join('Ana');
+    network.host.setCharacterArt('goblin', goblinArt);
+    network.flush();
+    expect(ana.session.state?.art.characters.goblin).toEqual(goblinArt);
+    network.host.setCharacterArt('goblin', null);
+    network.flush();
+    expect(ana.session.state?.art.characters).toEqual({});
+  });
+
+  it('refuses a sheet layout that doesn\'t fit its image', () => {
+    const network = createTestNetwork();
+    expect(() => network.host.setCharacterArt('goblin', { ...goblinArt, layout: { frameSize: 16, clips: { idle: { down: row(9), left: row(1), right: row(2), up: row(3) } } } })).toThrow(/off the sheet/);
+  });
+});

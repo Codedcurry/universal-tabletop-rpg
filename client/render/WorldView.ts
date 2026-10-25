@@ -24,6 +24,7 @@ import type { GameSystem } from '@shared/system';
 import { type AnimationSpeed, type Timeline, timingFor } from '@shared/anim';
 import { type GraphicsQuality, SlowFrameDetector, effectsFor } from '@shared/graphics';
 import { PIXEL_TILE_SIZE, PIXEL_TILE_VARIANTS, pixelTile, tileSideColor } from '@shared/style/pixelTiles';
+import type { CharacterArt } from '@shared/style/art';
 import { CameraRig } from './CameraRig';
 import { SceneEffects } from './SceneEffects';
 import { buildObjectMeshes, cellSeed } from './objectMeshes';
@@ -674,6 +675,13 @@ export class WorldView {
       this.materials.set(key, material);
     }
     return material;
+  }
+
+  /** The DM's character art: creatures with art are drawn from their sprite sheets. */
+  setCharacterArt(characters: Readonly<Record<string, CharacterArt>>): void {
+    this.tokens.setCharacterArt(characters);
+    this.markActive();
+    this.invalidate();
   }
 
   /** The DM's own tile textures (data URLs by terrain); they show in either art style. */

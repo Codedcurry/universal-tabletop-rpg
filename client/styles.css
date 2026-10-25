@@ -1431,3 +1431,22 @@ button.danger {
   padding: 0 12px;
   font-size: 14px;
 }
+.sheet-preview {
+  width: 128px;
+  height: 128px;
+  image-rendering: pixelated;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: repeating-conic-gradient(#2a2539 0% 25%, #221e2e 0% 50%) 50% / 16px 16px;
+}
+.token-preview {
+  width: 64px;
+  height: 64px;
+  align-self: center;
+}
+.sheet-previews {
+  align-items: flex-start;
+}
+.character-import {
+  margin-top: 16px;
+}
