@@ -107,12 +107,22 @@ A PC- and mobile-friendly take on Tabletop Simulator, built specifically for tab
 - Objects: a tile may hold one `object` (id like terrain; catalog in `shared/map/objects.ts` with name, nature/built, and whether it blocks by default). `setObject` places one (solid if it blocks) or removes it (only from tiles that have one); `clearMap` makes everything flat empty grass, keeping the world's shape. The Map tab has Objects / Remove objects tools and Clear map (asks "Are you sure about clearing the whole map?"; Undo works). Models are low-poly part lists in the style pack (`client/style/placeholderObjects.ts`), drawn as thin instances (`client/render/objectMeshes.ts`); natural ones get a fixed per-tile turn and size. The examples are dressed with objects (`MapBuilder.place` / `scatter`); a test checks each uses at least five kinds, natural and built.
 - Solid tiles look like their terrain (style pack `solid`): a tree canopy on wood, a bush on grass, a boulder on stone, a crag on snow; deep water (`height` 0) is just darker water.
 
+### DM controls: line of sight, fog of war, notes (step 10)
+- `shared/vision`: `hasLineOfSight` walks the grid line between two cells. Walls, tall objects (`blocksSight` in the object catalog: trees, boulders, pillars...), solid tiles without an object (rock, crags, but not deep water), and ground higher than the line from eye (`EYE_HEIGHT` 1.5 levels up) to target (`TARGET_HEIGHT` 1) block it; creatures don't. A diagonal step on a square grid passes a corner if either way round is open. `visibleCells` / `sightOf` (union for several viewers, `VISION_RANGE` 10).
+- Targeting needs line of sight (engine `checkTarget`), so `targetOptions` and the highlights follow it.
+- Fog of war: a public session setting (`setFogOfWar`, Session tab). `useFog` (client) works out what the player's controlled creatures see, remembers explored tiles (dimmed), and hides creatures out of sight; unexplored tiles read "unexplored". It runs in the player's browser on the full state, so it hides things on screen but isn't secret from developer tools.
+- DM notes: `HostSession.setNote(cell, text)` / `notes()`, kept only on the host, never published (a test checks no message to players mentions them). The Map tab's Notes tool opens a note for a tile; noted tiles are tinted violet on the DM's map and the note shows in the tile readout.
+- Token permissions: "Players control their own characters" and the creature editor's "Controlled by" (see DM tools).
+
+### Hosting
+- GitHub Pages: `.github/workflows/pages.yml` builds with `BASE_PATH=/<repo>/` (vite `base`) and deploys on every push to master: https://codedcurry.github.io/universal-tabletop-rpg/ (the repo is public; Pages source is "GitHub Actions").
+
 ### Known gaps (planned, not built yet)
 - Saved favorite rolls per character (optional in the spec) are not built yet. Dice and combat sounds are step 11.
-- The DM's session lives in memory: reloading the DM's page ends the game (storage is step 12). Use Export to keep a map.
+- The DM's session lives in memory: reloading the DM's page ends the game (storage is step 12). Use Export to keep a map. DM notes are lost on reload too.
 - No TURN relay configured yet; players on strict networks (some mobile carriers) may fail to connect. See `.env.example`.
 - House rules (build step 15). The DM can edit creatures directly (see DM tools), but rules themselves are not overridable yet.
-- Line of sight for targeting (step 10); range is grid distance only.
+- Fog of war is not secret from a player inspecting their browser (see above); true secrecy would need per-player state from the host.
 - Resources beyond HP (mana, spell slots), critical hits, falling damage, reactions.
 
 ## Confined world rules

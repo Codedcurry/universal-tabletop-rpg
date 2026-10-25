@@ -83,6 +83,9 @@ export class WorldView {
   private ceiling = 0;
   private highlightMesh: Mesh | null = null;
   private reachMesh: Mesh | null = null;
+  private fogDark: Mesh | null = null;
+  private fogDim: Mesh | null = null;
+  private notesMesh: Mesh | null = null;
   private ghostMesh: Mesh | null = null;
   private grid: Grid | null = null;
   private heights = new Map<string, number>();
@@ -458,6 +461,39 @@ export class WorldView {
   }
 
   /** An ability's range: a faint tint under the targets (thinner than the highlight, so the two never fight). */
+  /**
+   * Fog of war for this viewer: tiles never seen are hidden under dark fog,
+   * tiles seen before but not now are dimmed, and creatures out of sight
+   * aren't drawn. Null shows everything (no fog, or the DM).
+   */
+  setFog(fog: { readonly visible: ReadonlySet<string>; readonly explored: ReadonlySet<string> } | null, hiddenTokens: ReadonlySet<string>): void {
+    this.fogDark?.dispose();
+    this.fogDim?.dispose();
+    this.fogDark = null;
+    this.fogDim = null;
+    this.tokens.setHidden(hiddenTokens);
+    this.canvas.dataset.fog = fog ? 'on' : 'off';
+    this.canvas.dataset.visibleTiles = fog ? String(fog.visible.size) : '';
+    this.invalidate();
+    if (!fog || !this.map) return;
+    const unseen: Cell[] = [];
+    const remembered: Cell[] = [];
+    for (const tile of this.map.tiles) {
+      const key = `${tile.q},${tile.r}`;
+      if (fog.visible.has(key)) continue;
+      (fog.explored.has(key) ? remembered : unseen).push(tile);
+    }
+    // Tall enough to cover what stands on the tiles (trees, crates) too.
+    this.fogDark = this.overlay('fog-dark', unseen, 0.94, 0, this.style.background, true, 3.5);
+    this.fogDim = this.overlay('fog-dim', remembered, 0.5, 0, this.style.background, true, 3.5);
+  }
+
+  /** The DM's notes: a violet tint on each tile that has one (the DM's view only). */
+  setNotes(cells: readonly Cell[]): void {
+    this.notesMesh?.dispose();
+    this.notesMesh = this.overlay('notes', cells, 0.45, 0.8, '#a070ff', true, 0.1);
+  }
+
   setReach(cells: readonly Cell[], kind: 'harm' | 'help' = 'harm'): void {
     this.reachMesh?.dispose();
     // Red blended thinly over green turns brown: red needs more cover than blue to read as red.

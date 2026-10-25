@@ -239,6 +239,10 @@ export function HostView({ game, combatEvents }: Props) {
                 />
                 Players control their own characters
               </label>
+              <label className="check" title="Players see only what their characters can see; you always see everything">
+                <input type="checkbox" checked={state.fogOfWar} onChange={(event) => session.setFogOfWar(event.target.checked)} />
+                Fog of war
+              </label>
               <h3>Players</h3>
               <Players players={state.players} />
             </div>

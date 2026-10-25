@@ -20,7 +20,7 @@ import {
   startCombat,
 } from '../combat';
 import { DiceNotationError, RollReplayError, type RollResult, replayRoll, roll } from '../dice';
-import type { Cell } from '../grid';
+import { type Cell, cellKey } from '../grid';
 import { type MapPatch, applyPatch, isEmptyPatch } from '../editor';
 import { type MapData, type WorldMap, createWorldMap } from '../map';
 import type { RandomSource } from '../random';
@@ -93,11 +93,21 @@ function checkTitle(title: string): string {
   return trimmed;
 }
 
+/** A DM-only note on a tile. */
+export interface DmNote {
+  readonly cell: Cell;
+  readonly text: string;
+}
+
+const MAX_NOTE_LENGTH = 2000;
+
 export class HostSession {
   private state: SessionSnapshot;
   private worldMap: WorldMap | null = null;
   private readonly connections = new Map<string, Connection>();
   private readonly players: PlayerRecord[] = [];
+  /** DM-only notes on tiles, by cell key. Never part of the public state. */
+  private readonly dmNotes = new Map<string, DmNote>();
   private nextPlayerNumber = 1;
   private nextSeq = 1;
 
@@ -107,6 +117,7 @@ export class HostSession {
       dmTitle: checkTitle(options.dmTitle ?? 'DM'),
       rollMode: 'player',
       playersControlOwn: true,
+      fogOfWar: false,
       players: [],
       system: null,
       map: null,
@@ -222,9 +233,32 @@ export class HostSession {
     });
   }
 
+  /** Fog of war: players see only what their creatures can see. */
+  setFogOfWar(on: boolean): void {
+    if (on === this.state.fogOfWar) return;
+    this.publish({ ...this.settings(), fogOfWar: on });
+    this.log({ kind: 'system', text: `${this.state.dmTitle} turns ${on ? 'on' : 'off'} fog of war` });
+  }
+
+  /**
+   * A note on a tile for the DM alone (a trap, a secret door). Notes are never
+   * sent to players. Empty text removes the note.
+   */
+  setNote(cell: Cell, text: string): void {
+    const trimmed = text.trim();
+    if (trimmed.length > MAX_NOTE_LENGTH) throw new Error(`A note is too long (${MAX_NOTE_LENGTH} characters at most)`);
+    if (trimmed === '') this.dmNotes.delete(cellKey(cell));
+    else this.dmNotes.set(cellKey(cell), { cell: { q: cell.q, r: cell.r }, text: trimmed });
+  }
+
+  /** The DM's notes, row by row. */
+  notes(): DmNote[] {
+    return [...this.dmNotes.values()].sort((a, b) => a.cell.r - b.cell.r || a.cell.q - b.cell.q);
+  }
+
   private settings(): Extract<SessionUpdate, { kind: 'settings' }> {
-    const { dmTitle, rollMode, playersControlOwn } = this.state;
-    return { kind: 'settings', dmTitle, rollMode, playersControlOwn };
+    const { dmTitle, rollMode, playersControlOwn, fogOfWar } = this.state;
+    return { kind: 'settings', dmTitle, rollMode, playersControlOwn, fogOfWar };
   }
 
   setSystem(system: GameSystem): void {

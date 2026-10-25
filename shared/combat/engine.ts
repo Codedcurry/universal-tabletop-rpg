@@ -1,5 +1,6 @@
 import { evaluateFormula, parseFormula } from '../formula';
 import { type Cell, cellKey, headingBetween } from '../grid';
+import { hasLineOfSight } from '../vision';
 import { type Occupant, type Reach, findPath, reachable } from '../movement';
 import type { RandomSource } from '../random';
 import {
@@ -370,6 +371,10 @@ function checkTarget(ctx: CombatContext, ability: AbilityDef, actor: Combatant, 
   }
   if (ctx.map.grid.distance(actor.position, target.position) > ability.range) {
     violation(`${target.sheet.name} is out of range for ${ability.name} (range ${ability.range})`);
+  }
+  // Anything aimed at another creature needs a clear view of it (see shared/vision).
+  if (target.sheet.id !== actor.sheet.id && !hasLineOfSight(ctx.map, actor.position, target.position)) {
+    violation(`${target.sheet.name} is out of sight`);
   }
 }
 

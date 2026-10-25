@@ -750,3 +750,43 @@ describe("the DM's encounter controls", () => {
     expect(ana.session.state?.combat).toBeNull();
   });
 });
+
+describe('fog of war and DM notes', () => {
+  it('turns fog of war on and off for everyone', () => {
+    const network = createTestNetwork({ dmTitle: 'Keeper' });
+    const ana = network.join('Ana');
+    expect(ana.session.state?.fogOfWar).toBe(false);
+    network.host.setFogOfWar(true);
+    network.flush();
+    expect(ana.session.state?.fogOfWar).toBe(true);
+    expect(texts(ana.session.state?.log ?? [])).toContain('Keeper turns on fog of war');
+    network.host.setFogOfWar(false);
+    network.flush();
+    expect(ana.session.state?.fogOfWar).toBe(false);
+  });
+
+  it('keeps DM notes on tiles for the DM only: nothing about them reaches players', () => {
+    const network = createTestNetwork();
+    const sent: string[] = [];
+    network.intercept((envelope) => {
+      if (envelope.direction === 'toClient' && typeof envelope.data === 'string') sent.push(envelope.data);
+      return 'deliver';
+    });
+    const ana = network.join('Ana');
+    network.host.setMap(map);
+    network.host.setNote({ q: 2, r: 3 }, 'A trapdoor to the smugglers’ tunnel');
+    network.host.setNote({ q: 4, r: 1 }, '  ');
+    network.flush();
+    expect(network.host.notes()).toEqual([{ cell: { q: 2, r: 3 }, text: 'A trapdoor to the smugglers’ tunnel' }]);
+    expect(sent.join('\n')).not.toContain('trapdoor');
+    expect(JSON.stringify(ana.session.state)).not.toContain('trapdoor');
+
+    network.host.setNote({ q: 2, r: 3 }, '');
+    expect(network.host.notes()).toEqual([]);
+  });
+
+  it('refuses notes that are too long', () => {
+    const network = createTestNetwork();
+    expect(() => network.host.setNote({ q: 0, r: 0 }, 'x'.repeat(2001))).toThrow(/long/);
+  });
+});

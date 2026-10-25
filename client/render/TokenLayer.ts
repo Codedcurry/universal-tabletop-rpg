@@ -95,6 +95,8 @@ export class TokenLayer {
   private combat: CombatState | null = null;
   private topDown = false;
   private targets = new Set<string>();
+  /** Creatures this viewer can't see (fog of war). */
+  private hidden = new Set<string>();
   /** How fast actions play out (the viewer's combat animation setting). */
   private timing: AnimationTiming = DEFAULT_TIMING;
 
@@ -148,6 +150,11 @@ export class TokenLayer {
   }
 
   /** Creatures the current ability can target: their name tags become buttons. */
+  /** Hides creatures this viewer can't see (fog of war). */
+  setHidden(ids: ReadonlySet<string>): void {
+    this.hidden = new Set(ids);
+  }
+
   setTargets(ids: readonly string[], intent: 'harm' | 'help' = 'harm'): void {
     this.targets = new Set(ids);
     for (const token of this.tokens.values()) {
@@ -259,7 +266,11 @@ export class TokenLayer {
       // Name tag above the head; in top-down (north up), just north of the round token.
       const tagAnchor = this.topDown ? new Vector3(0, 0.05, -0.5 * this.style.cellSize) : new Vector3(0, SPRITE_H + 0.15, 0);
       const head = Vector3.Project(position.add(tagAnchor), Matrix.Identity(), transform, screen);
-      const visible = head.z > 0 && head.z < 1;
+      // Out of this viewer's sight (fog of war): the creature isn't drawn at all.
+      const hidden = this.hidden.has(token.id);
+      token.root.setEnabled(!hidden);
+      token.discAnchor.setEnabled(!hidden);
+      const visible = !hidden && head.z > 0 && head.z < 1;
       token.label.style.display = visible ? '' : 'none';
       token.label.style.transform = `translate(${head.x}px, ${head.y}px) translate(-50%, -100%)`;
     }

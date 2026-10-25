@@ -99,7 +99,9 @@ describe('targetOptions', () => {
   });
 
   it('reaches further with a ranged ability', () => {
-    const state = fight();
+    // With the far goblin out in the open (on this map the cliff hides where it starts).
+    const start = fight();
+    const state = { ...start, combatants: { ...start.combatants, far: { ...start.combatants.far!, position: c(6, 3) } } };
     expect(targetOptions(ctx, state, 'hero', 'strike')).toEqual(['near']);
     expect(targetOptions(ctx, state, 'hero', 'shoot')).toEqual(['near', 'far']);
   });
@@ -157,5 +159,52 @@ describe('abilityReach', () => {
 
   it('is empty for an ability the creature lacks', () => {
     expect(abilityReach(ctx, fight(), 'cleric', 'shoot')).toEqual([]);
+  });
+});
+
+describe('line of sight for targeting', () => {
+  // A row of open ground with a tree between the archer and one goblin, and a wall before another.
+  const sightCtx: CombatContext = {
+    system: skirmish,
+    map: createWorldMap({
+      formatVersion: 1,
+      grid: 'square',
+      tiles: rectangleTiles('square', 9, 3).map((cell) => ({
+        ...cell,
+        height: 0,
+        ...(cell.q === 3 && cell.r === 0 ? { object: 'tree', blocked: true } : {}),
+      })),
+      walls: [[c(1, 2), c(2, 2)]],
+    }),
+  };
+  function standoff(): CombatState {
+    return startCombat(
+      sightCtx,
+      [
+        { ...hero, position: c(1, 0) },
+        setupFromMonster(skirmish, 'goblin', { id: 'hidden', side: 'monsters', position: c(6, 0) }),
+        setupFromMonster(skirmish, 'goblin', { id: 'clear', side: 'monsters', position: c(6, 2) }),
+        setupFromMonster(skirmish, 'goblin', { id: 'walled', side: 'monsters', position: c(2, 2) }),
+      ],
+      scriptedRandom([19, 0, 0, 0]),
+    ).state;
+  }
+
+  it('only offers targets the attacker can see', () => {
+    const targets = targetOptions(sightCtx, standoff(), 'hero', 'shoot');
+    expect(targets).toContain('clear');
+    expect(targets).not.toContain('hidden');
+  });
+
+  it('refuses an attack on a creature out of sight', () => {
+    const result = applyAction(sightCtx, standoff(), { type: 'useAbility', actorId: 'hero', abilityId: 'shoot', targetId: 'hidden' }, scriptedRandom([10, 3]));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/sight/i);
+  });
+
+  it('is blocked by walls too, even next door', () => {
+    const moved = applyAction(sightCtx, standoff(), { type: 'move', actorId: 'hero', to: c(1, 2) }, scriptedRandom([]));
+    if (!moved.ok) throw new Error(moved.reason);
+    expect(targetOptions(sightCtx, moved.state, 'hero', 'strike')).not.toContain('walled');
   });
 });

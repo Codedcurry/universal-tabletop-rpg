@@ -44,7 +44,8 @@ type Tool =
   | 'addTiles'
   | 'removeTiles'
   | 'wall'
-  | 'unwall';
+  | 'unwall'
+  | 'note';
 
 const TOOLS: { id: Tool; label: string; hint: string }[] = [
   { id: 'raise', label: 'Raise', hint: 'Raise tiles one level' },
@@ -59,6 +60,7 @@ const TOOLS: { id: Tool; label: string; hint: string }[] = [
   { id: 'removeTiles', label: 'Remove tiles', hint: 'Shrink the world' },
   { id: 'wall', label: 'Wall', hint: 'Click near a tile edge to build a wall' },
   { id: 'unwall', label: 'Remove wall', hint: 'Click near a wall to remove it' },
+  { id: 'note', label: 'Notes', hint: 'Click a tile to write a note only you can see' },
 ];
 
 const SHAPES: { id: ShapeKind; label: string }[] = [
@@ -118,6 +120,11 @@ export function MapEditor({ session, combatEvents, editing, toolsSlot, onMapClic
   const [terrain, setTerrain] = useState<string>('stone');
   const [objectId, setObjectId] = useState<string>('tree');
   const [confirmingClear, setConfirmingClear] = useState(false);
+  /** The DM's private notes on tiles (kept by the session, never sent to players). */
+  const [notes, setNotes] = useState(() => session.notes());
+  const [noteCell, setNoteCell] = useState<Cell | null>(null);
+  const noteCells = useMemo(() => notes.map((note) => note.cell), [notes]);
+  const noteAt = (cell: Cell | null) => (cell ? (notes.find((note) => cellKey(note.cell) === cellKey(cell))?.text ?? null) : null);
   const [level, setLevel] = useState(0);
   const [history, setHistory] = useState<EditHistory>(EMPTY_HISTORY);
   const [preview, setPreview] = useState<Cell[]>([]);
@@ -257,6 +264,12 @@ export function MapEditor({ session, combatEvents, editing, toolsSlot, onMapClic
     setHovered(pointer.cell);
     if (!world || !map) return;
     if (pointer.isTouch && !touchEdits) return;
+
+    // Notes: a click opens the note for that tile.
+    if (tool === 'note') {
+      if (pointer.type === 'up' && pointer.button === 0 && pointer.cell && world.inBounds(pointer.cell)) setNoteCell(pointer.cell);
+      return;
+    }
 
     if (pointer.type === 'down') {
       // Another finger touching down mid-stroke means "cancel" on a touch screen.
@@ -552,6 +565,24 @@ export function MapEditor({ session, combatEvents, editing, toolsSlot, onMapClic
       {panel === 'new' && <NewMapPanel onCreate={replaceMap} />}
       {panel === 'generate' && <GeneratePanel onCreate={replaceMap} />}
       {panel === 'examples' && <ExamplesPanel onLoad={replaceMap} />}
+      {noteCell && (
+        <NoteEditor
+          key={cellKey(noteCell)}
+          cell={noteCell}
+          text={noteAt(noteCell) ?? ''}
+          onSave={(text) => {
+            try {
+              session.setNote(noteCell, text);
+              setNotes(session.notes());
+              setNoteCell(null);
+              setError(null);
+            } catch (caught) {
+              setError(caught instanceof Error ? caught.message : String(caught));
+            }
+          }}
+          onClose={() => setNoteCell(null)}
+        />
+      )}
       {confirmingClear && map && (
         <ConfirmClear
           onCancel={() => setConfirmingClear(false)}
@@ -587,6 +618,7 @@ export function MapEditor({ session, combatEvents, editing, toolsSlot, onMapClic
           </p>
           <WorldCanvas
             map={map}
+            notes={noteCells}
             editing={editing && touchEdits}
             highlight={editing ? preview : play.highlight}
             highlightKind={editing ? 'brush' : play.highlightKind}
@@ -627,7 +659,7 @@ export function MapEditor({ session, combatEvents, editing, toolsSlot, onMapClic
             </p>
           )}
           <p className="tile-info" data-testid="tile-info">
-            {tileDescription(world, hovered)}
+            {tileDescription(world, hovered, { note: noteAt(hovered) })}
           </p>
           <p className="hint">
             {editing
@@ -703,6 +735,43 @@ function NewMapPanel({ onCreate }: { onCreate(map: MapData): void }) {
           </button>
         </div>
         {problem && <p className="field-error">{problem}</p>}
+      </fieldset>
+    </form>
+  );
+}
+
+/** Writes (or deletes) the DM's private note on one tile. */
+function NoteEditor({ cell, text, onSave, onClose }: { cell: Cell; text: string; onSave(text: string): void; onClose(): void }) {
+  const [draft, setDraft] = useState(text);
+  return (
+    <form
+      className="panel"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSave(draft);
+      }}
+    >
+      <fieldset aria-label={`Note on tile (${cell.q}, ${cell.r})`}>
+        <legend>
+          Note on tile ({cell.q}, {cell.r}) · only you can see it
+        </legend>
+        <label>
+          <span>Note</span>
+          <textarea value={draft} rows={3} maxLength={2000} onChange={(event) => setDraft(event.target.value)} autoFocus />
+        </label>
+        <div className="row">
+          <button type="submit" className="primary">
+            Save note
+          </button>
+          {text && (
+            <button type="button" className="danger" onClick={() => onSave('')}>
+              Delete note
+            </button>
+          )}
+          <button type="button" onClick={onClose}>
+            Close
+          </button>
+        </div>
       </fieldset>
     </form>
   );

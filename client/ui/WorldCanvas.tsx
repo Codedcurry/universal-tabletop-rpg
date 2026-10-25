@@ -8,6 +8,7 @@ import { type MapData, type WorldMap, objectInfo } from '@shared/map';
 import { type HighlightKind, type TilePointer, WorldView } from '../render/WorldView';
 import { placeholderStyle } from '../style/stylePack';
 import { DisplaySettingsMenu } from './DisplaySettingsMenu';
+import type { Fog } from './useFog';
 import { setDisplaySetting, useDisplaySettings } from './displaySettings';
 
 interface Props {
@@ -31,6 +32,11 @@ interface Props {
   readonly system?: GameSystem | null;
   /** The events of the latest combat action, played as animations; `key` changes with each action. */
   readonly combatEvents?: { readonly events: readonly CombatEvent[]; readonly key: number } | null;
+  /** Fog of war for this viewer (null: see everything), and creatures out of their sight. */
+  readonly fog?: Fog | null;
+  readonly hiddenTokens?: ReadonlySet<string>;
+  /** Tiles with DM notes (the DM's view only). */
+  readonly notes?: readonly Cell[];
   /** Creatures the chosen ability can target. */
   readonly targets?: readonly string[];
   onTokenClick?(combatantId: string): void;
@@ -43,6 +49,7 @@ const QUALITY_NAMES = { low: 'Low', medium: 'Medium', high: 'High' } as const;
 
 const NONE: readonly Cell[] = [];
 const NO_TARGETS: readonly string[] = [];
+const NO_ONE: ReadonlySet<string> = new Set();
 
 /** The style pack's action colors, for the HTML over the map (target buttons). */
 const actionColors = {
@@ -61,6 +68,7 @@ export function WorldCanvas(props: Props) {
   const { map, editing, highlight = NONE, highlightKind = 'brush', ghosts = NONE, frameKey = 0, focus = null, onFocusEveryone, overlay, onPointer } =
     props;
   const { combat = null, system = null, combatEvents = null, targets = NO_TARGETS, onTokenClick, reach = NONE, reachKind = 'harm' } = props;
+  const { fog = null, hiddenTokens = NO_ONE, notes = NONE } = props;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const viewRef = useRef<WorldView | null>(null);
   const [camera, setCamera] = useState<CameraView>({ mode: '2.5d', free: false, cardinal: 'north' });
@@ -119,6 +127,7 @@ export function WorldCanvas(props: Props) {
   useEffect(() => viewRef.current?.setHighlight(highlight, highlightKind), [highlight, highlightKind, map]);
   useEffect(() => viewRef.current?.setReach(reach, reachKind), [reach, reachKind, map]);
   useEffect(() => viewRef.current?.setGhosts(ghosts), [ghosts, map]);
+  useEffect(() => viewRef.current?.setNotes(notes), [notes, map]);
   useEffect(() => {
     if (frameKey > 0) viewRef.current?.frameMap();
   }, [frameKey]);
@@ -131,6 +140,8 @@ export function WorldCanvas(props: Props) {
     if (fresh) playedKey.current = fresh.key;
     viewRef.current?.setCombat(combat, system, fresh?.events ?? null);
   }, [combat, system, combatEvents, map]);
+  // After setCombat, so new creatures are hidden too.
+  useEffect(() => viewRef.current?.setFog(fog, hiddenTokens), [fog, hiddenTokens, map, combat]);
   useEffect(() => viewRef.current?.setTargets(targets, highlightKind === 'help' ? 'help' : 'harm'), [targets, highlightKind]);
 
   const command = (next: CameraCommand) => viewRef.current?.cameraCommand(next);
@@ -240,10 +251,16 @@ export function mapSummary(map: MapData): string {
 }
 
 /** Describes the tile under the pointer. */
-export function tileDescription(world: WorldMap, cell: Cell | null): string {
+/**
+ * What the pointer is over. Under fog of war, tiles never seen tell nothing;
+ * the DM's view adds the tile's note, if any.
+ */
+export function tileDescription(world: WorldMap, cell: Cell | null, extra: { fog?: Fog | null; note?: string | null } = {}): string {
   if (!cell) return 'Point at a tile to inspect it';
   const tile = world.tile(cell);
   if (!tile) return `(${cell.q}, ${cell.r}) is outside the map`;
+  if (extra.fog && !extra.fog.explored.has(`${cell.q},${cell.r}`)) return `Tile (${cell.q}, ${cell.r}) · unexplored`;
+  const note = extra.note ? ` · Note: ${extra.note}` : '';
   const object = tile.object ? ` · ${objectInfo(tile.object)?.name ?? tile.object}` : '';
-  return `Tile (${cell.q}, ${cell.r}) · height ${tile.height} · ${tile.terrain}${object}${tile.blocked ? ' · solid' : ''}`;
+  return `Tile (${cell.q}, ${cell.r}) · height ${tile.height} · ${tile.terrain}${object}${tile.blocked ? ' · solid' : ''}${note}`;
 }

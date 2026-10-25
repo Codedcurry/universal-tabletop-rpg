@@ -81,6 +81,7 @@ export function PlayerView({ game, code, error, focus, combatEvents }: Props) {
             combat={state.combat}
             system={state.system}
             combatEvents={combatEvents}
+            fogOfWar={state.fogOfWar}
             canControl={(id) => session.status === 'connected' && session.canControl(id)}
             act={(action) => session.act(action)}
           />

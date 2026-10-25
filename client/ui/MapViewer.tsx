@@ -5,6 +5,7 @@ import { type MapData, createWorldMap } from '@shared/map';
 import type { GameSystem } from '@shared/system';
 import { CombatHud } from './CombatHud';
 import { useCombatPlay } from './useCombatPlay';
+import { useFog } from './useFog';
 import { WorldCanvas, mapSummary, tileDescription } from './WorldCanvas';
 
 interface Props {
@@ -14,15 +15,19 @@ interface Props {
   readonly combat: CombatState | null;
   readonly system: GameSystem | null;
   readonly combatEvents: { readonly events: readonly CombatEvent[]; readonly key: number } | null;
+  /** The DM turned on fog of war: see only what this player's creatures see. */
+  readonly fogOfWar?: boolean;
   canControl(combatantId: string): boolean;
   act(action: CombatAction): void;
 }
 
 /** A player's view of the map, updated live as the DM edits; the fight is played from here. */
-export function MapViewer({ map, focus = null, combat, system, combatEvents, canControl, act }: Props) {
+export function MapViewer({ map, focus = null, combat, system, combatEvents, fogOfWar = false, canControl, act }: Props) {
   const [hovered, setHovered] = useState<Cell | null>(null);
   const world = useMemo(() => (map ? createWorldMap(map) : null), [map]);
   const play = useCombatPlay({ combat, system, map, canControl, act });
+  const controlled = Object.keys(combat?.combatants ?? {}).filter(canControl);
+  const { fog, hidden } = useFog(world, combat, fogOfWar, controlled);
   if (!map || !world) return <p className="muted">The DM hasn't made a map yet.</p>;
   return (
     <div className="map-view">
@@ -40,6 +45,8 @@ export function MapViewer({ map, focus = null, combat, system, combatEvents, can
         combat={combat}
         system={system}
         combatEvents={combatEvents}
+        fog={fog}
+        hiddenTokens={hidden}
         targets={play.targets}
         onTokenClick={play.onTokenClick}
         onPointer={(pointer) => {
@@ -50,7 +57,7 @@ export function MapViewer({ map, focus = null, combat, system, combatEvents, can
       {combat && system && <CombatHud combat={combat} system={system} play={play} />}
       <p className="hint">Drag to move the view · wheel or pinch to zoom · Q/E, the turn buttons, or a two-finger twist to turn</p>
       <p className="tile-info" data-testid="tile-info">
-        {tileDescription(world, hovered)}
+        {tileDescription(world, hovered, { fog })}
       </p>
     </div>
   );
