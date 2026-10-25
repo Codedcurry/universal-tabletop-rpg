@@ -129,7 +129,10 @@ export function useCombatPlay({ combat, system, map, canControl, act }: Options)
     },
     onPointer(pointer) {
       if (pointer.type === 'cancel') {
-        setAbility(null);
+        // A second finger means a pinch or a twist of the view, not "never mind": keep the
+        // chosen ability. (A right-click while holding the left button still cancels.)
+        if (!pointer.isTouch) setAbility(null);
+        pressedAt.current = null; // lifting the first finger afterwards isn't a tap
         return;
       }
       if (pointer.button !== 0) return;

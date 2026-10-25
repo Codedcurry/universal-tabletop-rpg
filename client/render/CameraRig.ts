@@ -6,16 +6,20 @@ import {
   type CameraCommand,
   type CameraView,
   type GroundPoint,
+  type ScreenPoint,
   TILT_2_5D,
   approach,
   approachAngle,
   cameraGoal,
   clampTarget,
+  groundPan,
   headingFromOrbit,
   orbitFor,
   panSensibility,
+  pinchZoom,
   reduceCamera,
   twistAngle,
+  twoFingerDrag,
   wheelZoom,
 } from '@shared/camera';
 
@@ -250,7 +254,13 @@ export class CameraRig {
       const before = [...this.touches.values()];
       this.touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
       const after = [...this.touches.values()];
-      if (before.length === 2 && after.length === 2) this.twist(twistAngle(before[0]!, before[1]!, after[0]!, after[1]!));
+      if (before.length === 2 && after.length === 2) {
+        const [a0, b0, a1, b1] = [before[0]!, before[1]!, after[0]!, after[1]!];
+        this.twist(twistAngle(a0, b0, a1, b1));
+        // In the editor the camera ignores touch (one finger edits), so two fingers
+        // pinch and drag the view here; elsewhere the camera does it itself.
+        if (this.editing) this.pinchAndDrag(a0, b0, a1, b1);
+      }
       return;
     }
     if (this.middleDrag) {
@@ -271,6 +281,20 @@ export class CameraRig {
     this.touches.delete(event.pointerId);
     if (event.button === 1) this.middleDrag = null;
   };
+
+  /** Two fingers in the editor: spreading them zooms in, moving them together drags the map along. */
+  private pinchAndDrag(a0: ScreenPoint, b0: ScreenPoint, a1: ScreenPoint, b1: ScreenPoint): void {
+    const camera = this.camera;
+    const max = camera.upperRadiusLimit ?? 1000;
+    camera.radius = Math.min(max, Math.max(MIN_DISTANCE, pinchZoom(camera.radius, a0, b0, a1, b1)));
+    this.zoomGoal = null;
+    const worldPerPixel = (2 * camera.radius * Math.tan(camera.fov / 2)) / Math.max(1, this.canvas.clientHeight);
+    const move = groundPan(twoFingerDrag(a0, b0, a1, b1), this.heading, worldPerPixel);
+    let target = { x: camera.target.x + move.x, z: camera.target.z + move.z };
+    if (this.bounds) target = clampTarget(target, this.bounds);
+    camera.target = new Vector3(target.x, this.groundY, target.z);
+    this.focusGoal = null;
+  }
 
   private twist(angle: number): void {
     if (this.view.free) {

@@ -225,3 +225,32 @@ export function panSensibility(distance: number, fov: number, viewportHeight: nu
   const height = viewportHeight > 0 ? viewportHeight : 1;
   return Math.max(1e-6, height / visible / (1 - inertia));
 }
+
+/** The camera distance after a pinch: fingers spreading apart zoom in by the same ratio. */
+export function pinchZoom(distance: number, a0: ScreenPoint, b0: ScreenPoint, a1: ScreenPoint, b1: ScreenPoint): number {
+  const before = Math.hypot(b0.x - a0.x, b0.y - a0.y);
+  const after = Math.hypot(b1.x - a1.x, b1.y - a1.y);
+  if (before < 1 || after < 1) return distance;
+  return (distance * before) / after;
+}
+
+/** How far (screen pixels) the point between two fingers moved. */
+export function twoFingerDrag(a0: ScreenPoint, b0: ScreenPoint, a1: ScreenPoint, b1: ScreenPoint): ScreenPoint {
+  return { x: (a1.x + b1.x - a0.x - b0.x) / 2, y: (a1.y + b1.y - a0.y - b0.y) / 2 };
+}
+
+/**
+ * Where the view's center moves on the ground for a drag on screen, so the
+ * ground follows the fingers: dragging right moves the view left. `heading`
+ * is the camera's compass heading; `worldPerPixel` the ground distance one
+ * pixel covers at the view's center.
+ */
+export function groundPan(drag: ScreenPoint, heading: number, worldPerPixel: number): GroundPoint {
+  // Screen-right and screen-up on the ground (north is -z, east is +x).
+  const right = { x: Math.cos(heading), z: Math.sin(heading) };
+  const up = { x: Math.sin(heading), z: -Math.cos(heading) };
+  return {
+    x: (-right.x * drag.x + up.x * drag.y) * worldPerPixel,
+    z: (-right.z * drag.x + up.z * drag.y) * worldPerPixel,
+  };
+}

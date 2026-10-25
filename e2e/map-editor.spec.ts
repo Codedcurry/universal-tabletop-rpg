@@ -611,3 +611,49 @@ test('clearing the whole map asks first, and can be undone', async ({ browser })
   await dm.page.getByRole('button', { name: 'Undo' }).click();
   await expect(summary(ana.page)).toContainText('heights 0–1');
 });
+
+test('on a touch screen, two fingers pan and zoom the view while editing, without editing the map', async ({ browser }) => {
+  const context = await browser.newContext({ hasTouch: true });
+  openContexts.push(context);
+  const page = await context.newPage();
+  await page.goto('/');
+  await page.getByLabel('Your name').fill('Dana');
+  await page.getByRole('button', { name: 'Host a game' }).click();
+  await newMap(page, 'Square', 24, 16);
+  await page.getByRole('button', { name: 'Raise' }).click();
+  await page.getByTestId('world-canvas').scrollIntoViewIfNeeded();
+  const { x, y } = await canvasCenter(page);
+  const cdp = await context.newCDPSession(page);
+  const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd', points: { x: number; y: number }[]) =>
+    cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points.map((point, id) => ({ ...point, id })) });
+
+  /** Two fingers down, then moved in steps from `from` to `to`, then lifted. */
+  async function gesture(from: [number, number, number, number], to: [number, number, number, number]) {
+    await touch('touchStart', [{ x: from[0], y: from[1] }]);
+    await touch('touchStart', [{ x: from[0], y: from[1] }, { x: from[2], y: from[3] }]);
+    for (let step = 1; step <= 10; step++) {
+      const t = step / 10;
+      const at = from.map((value, index) => value + (to[index]! - value) * t);
+      await touch('touchMove', [{ x: at[0]!, y: at[1]! }, { x: at[2]!, y: at[3]! }]);
+    }
+    await touch('touchEnd', []);
+    await page.waitForTimeout(400);
+  }
+
+  const centerTile = async () => {
+    await hoverCenter(page);
+    return tileInfo(page).textContent();
+  };
+  const before = await centerTile();
+  // Both fingers slide right together: the map follows them.
+  await gesture([x - 60, y, x + 60, y], [x + 90, y, x + 210, y]);
+  const panned = await centerTile();
+  expect(panned).not.toBe(before);
+
+  // Fingers spread apart: zoom in (the view changes, the map doesn't).
+  const zoomedOut = await page.getByTestId('world-canvas').screenshot();
+  await gesture([x - 30, y, x + 30, y], [x - 150, y, x + 150, y]);
+  expect((await page.getByTestId('world-canvas').screenshot()).equals(zoomedOut)).toBe(false);
+
+  await expect(summary(page)).toContainText('heights 0–0'); // nothing was raised
+});

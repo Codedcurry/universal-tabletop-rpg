@@ -247,6 +247,7 @@ export function MapEditor({ session, combatEvents, editing, toolsSlot, onMapClic
   function onPointer(pointer: TilePointer): void {
     if (!editing) {
       if (pointer.type !== 'cancel') setHovered(pointer.cell);
+      else pressedAt.current = null; // a second finger: a gesture, so lifting the first isn't a click
       // A click goes to the encounter tools first (placing, selecting), then to the fight.
       if (pointer.type === 'down' && pointer.button === 0) pressedAt.current = { x: pointer.x, y: pointer.y };
       if (pointer.type === 'up' && pointer.button === 0 && pressedAt.current && pointer.cell && onMapClick) {

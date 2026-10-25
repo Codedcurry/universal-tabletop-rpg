@@ -20,7 +20,10 @@ import {
   twistAngle,
   ZOOM_PER_NOTCH,
   wheelZoom,
+  groundPan,
   panSensibility,
+  pinchZoom,
+  twoFingerDrag,
 } from './index';
 
 // Compass convention: heading is where the camera LOOKS. 0 = north (toward
@@ -285,5 +288,35 @@ describe('panSensibility (drag to pan)', () => {
   it('stays usable before the view has a size', () => {
     expect(Number.isFinite(panSensibility(20, fov, 0, 0.6))).toBe(true);
     expect(panSensibility(20, fov, 0, 0.6)).toBeGreaterThan(0);
+  });
+});
+
+describe('two-finger gestures (pinch and drag)', () => {
+  const p = (x: number, y: number) => ({ x, y });
+
+  it('pinching apart zooms in: the distance shrinks by how much the fingers spread', () => {
+    expect(pinchZoom(20, p(100, 100), p(200, 100), p(50, 100), p(250, 100))).toBeCloseTo(10, 6);
+    expect(pinchZoom(20, p(50, 100), p(250, 100), p(100, 100), p(200, 100))).toBeCloseTo(40, 6);
+  });
+
+  it('ignores a pinch with the fingers on top of each other', () => {
+    expect(pinchZoom(20, p(100, 100), p(100, 100), p(100, 100), p(120, 100))).toBe(20);
+  });
+
+  it('drags by how far the point between the fingers moved', () => {
+    expect(twoFingerDrag(p(100, 100), p(200, 100), p(130, 90), p(230, 90))).toEqual({ x: 30, y: -10 });
+  });
+
+  it('moves the ground with the fingers: a drag right moves the view left', () => {
+    // Facing north, east (+x) is to the right on screen and north (-z) is up.
+    const north = groundPan({ x: 30, y: 0 }, 0, 0.1);
+    expect(north.x).toBeCloseTo(-3, 6);
+    expect(north.z).toBeCloseTo(0, 6);
+    const up = groundPan({ x: 0, y: -20 }, 0, 0.1);
+    expect(up.z).toBeCloseTo(2, 6); // dragging up pulls the far side closer: the view moves south
+    // Facing east, screen-right is south.
+    const east = groundPan({ x: 30, y: 0 }, Math.PI / 2, 0.1);
+    expect(east.x).toBeCloseTo(0, 6);
+    expect(east.z).toBeCloseTo(-3, 6);
   });
 });
