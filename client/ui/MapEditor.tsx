@@ -78,6 +78,15 @@ const PRESETS: { id: GeneratePreset; label: string }[] = [
   { id: 'flat', label: 'Flat' },
 ];
 
+/** The tools in labelled groups, as the Map tab shows them. */
+const TOOL_GROUPS: { label: string; tools: Tool[] }[] = [
+  { label: 'Land', tools: ['raise', 'lower', 'flatten'] },
+  { label: 'Paint', tools: ['paint', 'object', 'removeObject'] },
+  { label: 'Blocking', tools: ['solid', 'clear', 'wall', 'unwall'] },
+  { label: 'World', tools: ['addTiles', 'removeTiles'] },
+  { label: 'DM', tools: ['note'] },
+];
+
 const isWallTool = (tool: Tool) => tool === 'wall' || tool === 'unwall';
 const NO_CELLS: readonly Cell[] = [];
 const NO_IDS: readonly string[] = [];
@@ -444,124 +453,146 @@ export function MapEditor({ session, combatEvents, editing, toolsSlot, onMapClic
   const usesTerrain = tool === 'paint' || tool === 'addTiles';
   const usesLevel = tool === 'flatten' || tool === 'addTiles';
 
+  const toolInfo = TOOLS.find((entry) => entry.id === tool);
+  const toolButton = (id: Tool) => {
+    const entry = TOOLS.find((candidate) => candidate.id === id) as (typeof TOOLS)[number];
+    return (
+      <button key={id} type="button" aria-pressed={tool === id} title={entry.hint} onClick={() => setTool(id)}>
+        {entry.label}
+      </button>
+    );
+  };
+
   const tools = (
     <div className="map-tools">
-      <div className="toolbar" role="toolbar" aria-label="Map tools">
-        {TOOLS.map((entry) => (
-          <button
-            key={entry.id}
-            type="button"
-            aria-pressed={tool === entry.id}
-            title={entry.hint}
-            onClick={() => setTool(entry.id)}
-          >
-            {entry.label}
-          </button>
-        ))}
-      </div>
+      {/* What to do: the tools, in labelled groups. */}
+      <section className="tool-section" aria-label="Tools">
+        <div className="toolbar tool-groups" role="toolbar" aria-label="Map tools">
+          {TOOL_GROUPS.map((group) => (
+            <div key={group.label} className="tool-group" role="group" aria-label={group.label}>
+              <span className="tool-group-label" aria-hidden="true">
+                {group.label}
+              </span>
+              <div className="segmented">{group.tools.map(toolButton)}</div>
+            </div>
+          ))}
+        </div>
 
-      <div className="row">
-        <label>
-          <span>Shape</span>
-          <select value={shape} disabled={isWallTool(tool)} onChange={(event) => setShape(event.target.value as ShapeKind)}>
-            {SHAPES.map((entry) => (
-              <option key={entry.id} value={entry.id}>
-                {entry.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        {usesTerrain && (
-          <label>
-            <span>Terrain</span>
-            <select value={terrain} onChange={(event) => setTerrain(event.target.value)}>
-              {TERRAINS.map((id) => (
-                <option key={id} value={id}>
-                  {id}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-        {tool === 'object' && (
-          <label>
-            <span>Object</span>
-            <select value={objectId} onChange={(event) => setObjectId(event.target.value)}>
-              {(['nature', 'built'] as const).map((category) => (
-                <optgroup key={category} label={category === 'nature' ? 'Nature' : 'Built'}>
-                  {MAP_OBJECTS.filter((entry) => entry.category === category).map((entry) => (
+        {/* How: only the options the chosen tool uses, then undo and redo. */}
+        <div className="tool-options">
+          <p className="tool-hint">{toolInfo?.hint}</p>
+          <div className="row">
+            {!isWallTool(tool) && tool !== 'note' && (
+              <label>
+                <span>Shape</span>
+                <select value={shape} onChange={(event) => setShape(event.target.value as ShapeKind)}>
+                  {SHAPES.map((entry) => (
                     <option key={entry.id} value={entry.id}>
-                      {entry.name}
+                      {entry.label}
                     </option>
                   ))}
-                </optgroup>
-              ))}
-            </select>
-          </label>
-        )}
-        {usesLevel && (
-          <label>
-            <span>Level</span>
-            <input
-              type="number"
-              min={0}
-              max={30}
-              value={level}
-              onChange={(event) => setLevel(Number(event.target.value))}
-              inputMode="numeric"
-            />
-          </label>
-        )}
-        <button type="button" onClick={() => step('undo')} disabled={history.undo.length === 0} title="Ctrl+Z">
-          Undo
-        </button>
-        <button type="button" onClick={() => step('redo')} disabled={history.redo.length === 0} title="Ctrl+Y">
-          Redo
-        </button>
-        <button
-          type="button"
-          className="touch-only"
-          aria-pressed={!touchEdits}
-          onClick={() => setTouchEdits((value) => !value)}
-        >
-          {touchEdits ? 'Touch: editing' : 'Touch: moving view'}
-        </button>
-      </div>
-
-      <div className="row">
-        <button type="button" aria-expanded={panel === 'new'} onClick={() => setPanel(panel === 'new' ? 'none' : 'new')}>
-          New map
-        </button>
-        <button
-          type="button"
-          aria-expanded={panel === 'generate'}
-          onClick={() => setPanel(panel === 'generate' ? 'none' : 'generate')}
-        >
-          Generate
-        </button>
-        <button
-          type="button"
-          aria-expanded={panel === 'examples'}
-          onClick={() => setPanel(panel === 'examples' ? 'none' : 'examples')}
-        >
-          Examples
-        </button>
-        {map && (
-          <button type="button" onClick={switchGrid} title="Converts this map, keeping its layout, heights, and terrain">
-            Switch to {map.grid === 'hex' ? 'square' : 'hex'} grid
+                </select>
+              </label>
+            )}
+            {usesTerrain && (
+              <label>
+                <span>Terrain</span>
+                <select value={terrain} onChange={(event) => setTerrain(event.target.value)}>
+                  {TERRAINS.map((id) => (
+                    <option key={id} value={id}>
+                      {id}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {tool === 'object' && (
+              <label>
+                <span>Object</span>
+                <select value={objectId} onChange={(event) => setObjectId(event.target.value)}>
+                  {(['nature', 'built'] as const).map((category) => (
+                    <optgroup key={category} label={category === 'nature' ? 'Nature' : 'Built'}>
+                      {MAP_OBJECTS.filter((entry) => entry.category === category).map((entry) => (
+                        <option key={entry.id} value={entry.id}>
+                          {entry.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              </label>
+            )}
+            {usesLevel && (
+              <label>
+                <span>Level</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={30}
+                  value={level}
+                  onChange={(event) => setLevel(Number(event.target.value))}
+                  inputMode="numeric"
+                />
+              </label>
+            )}
+            <div className="history">
+              <button type="button" aria-label="Undo" title="Undo (Ctrl+Z)" onClick={() => step('undo')} disabled={history.undo.length === 0}>
+                ↶
+              </button>
+              <button type="button" aria-label="Redo" title="Redo (Ctrl+Y)" onClick={() => step('redo')} disabled={history.redo.length === 0}>
+                ↷
+              </button>
+            </div>
+          </div>
+          <button type="button" className="touch-only" aria-pressed={!touchEdits} onClick={() => setTouchEdits((value) => !value)}>
+            {touchEdits ? 'Touch: editing' : 'Touch: moving view'}
           </button>
+        </div>
+      </section>
+
+      {/* The map as a whole: start one, load or save it, or clear it. */}
+      <section className="tool-section map-actions" aria-label="Map">
+        <div className="tool-group" role="group" aria-label="Start">
+          <span className="tool-group-label" aria-hidden="true">
+            Start
+          </span>
+          <div className="segmented">
+            <button type="button" aria-expanded={panel === 'new'} onClick={() => setPanel(panel === 'new' ? 'none' : 'new')}>
+              New map
+            </button>
+            <button type="button" aria-expanded={panel === 'generate'} onClick={() => setPanel(panel === 'generate' ? 'none' : 'generate')}>
+              Generate
+            </button>
+            <button type="button" aria-expanded={panel === 'examples'} onClick={() => setPanel(panel === 'examples' ? 'none' : 'examples')}>
+              Examples
+            </button>
+          </div>
+        </div>
+        <div className="tool-group" role="group" aria-label="File">
+          <span className="tool-group-label" aria-hidden="true">
+            File
+          </span>
+          <div className="segmented">
+            <label className="file-button">
+              <span>Import map file</span>
+              <input type="file" accept="application/json,.json" onChange={importMap} />
+            </label>
+            <button type="button" onClick={exportMap} disabled={!map}>
+              Export
+            </button>
+          </div>
+        </div>
+        {map && (
+          <div className="map-actions-end">
+            <button type="button" onClick={switchGrid} title="Converts this map, keeping its layout, heights, and terrain">
+              Switch to {map.grid === 'hex' ? 'square' : 'hex'} grid
+            </button>
+            <button type="button" className="danger" onClick={() => setConfirmingClear(true)}>
+              Clear map
+            </button>
+          </div>
         )}
-        <button type="button" onClick={exportMap} disabled={!map}>
-          Export
-        </button>
-        <button type="button" className="danger" disabled={!map} onClick={() => setConfirmingClear(true)}>
-          Clear map
-        </button>
-        <label className="file-button">
-          <span>Import map file</span>
-          <input type="file" accept="application/json,.json" onChange={importMap} />
-        </label>
-      </div>
+      </section>
 
       {panel === 'new' && <NewMapPanel onCreate={replaceMap} />}
       {panel === 'generate' && <GeneratePanel onCreate={replaceMap} />}
