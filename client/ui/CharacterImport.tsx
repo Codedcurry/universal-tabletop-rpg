@@ -1,11 +1,13 @@
-import { type ChangeEvent, useMemo, useState } from 'react';
+import { type ChangeEvent, type DragEvent, useMemo, useState } from 'react';
 import { CLIPS, type Clip } from '@shared/anim';
 import type { SpriteDirection } from '@shared/camera';
 import type { HostSession } from '@shared/net';
 import { type CharacterArt, type CharacterSource, MAX_IMAGE_CHARS, MAX_IMAGE_SIDE } from '@shared/style/art';
+import { arrangeFrames } from '@shared/style/frames';
 import { DEFAULT_FPS, SHEET_DIRECTIONS, type SheetLayout, guessFrameSize, portraitRect, sliceSheet } from '@shared/style/sheet';
 import { FramePicker, type PickerStart } from './FramePicker';
 import { OnePicture, type Picture, loadPicture } from './OnePicture';
+import { PixelEditor } from './PixelEditor';
 import { type Crop, Preview, type Sheet, SpeedField, TokenEditor, loadSheet, loadSheetUrl, makeToken, withSpeeds } from './spritePreview';
 
 // Importing a character's sprite sheet in the Art tab: choose who it's for
@@ -15,7 +17,9 @@ import { type Crop, Preview, type Sheet, SpeedField, TokenEditor, loadSheet, loa
 // friendly warnings and a round token (cut from the portrait, framed by
 // dragging), before it's used. A sheet that isn't laid out that
 // way (sprites of any size, anywhere) opens in the frame picker instead.
-// Any character's art can be edited there again later.
+// Any character's art can be edited there again later, or touched up in the
+// mini pixel editor. Several frame images (chosen together, or dropped on the
+// panel) are laid out as one sheet for the frame picker.
 
 interface Sliced {
   readonly layout: SheetLayout;
@@ -36,6 +40,8 @@ export function CharacterImport({ session, targets }: { session: HostSession; ta
   const [sheet, setSheet] = useState<Sheet | null>(null);
   /** A sheet open in the frame picker: a new one for the chosen character, or one being edited. */
   const [picking, setPicking] = useState<{ sheet: Sheet; key: string; name: string; start?: PickerStart } | null>(null);
+  /** A character's sheet open in the mini pixel editor. */
+  const [painting, setPainting] = useState<{ sheet: Sheet; key: string; name: string } | null>(null);
   /** A picture being made into a character. */
   const [making, setMaking] = useState<{ picture: Picture; key: string; name: string } | null>(null);
   const [frameSize, setFrameSize] = useState(32);
@@ -63,9 +69,11 @@ export function CharacterImport({ session, targets }: { session: HostSession; ta
   const showing = clips.includes(clip) ? clip : 'idle';
 
   async function choose(event: ChangeEvent<HTMLInputElement>, mode: 'grid' | 'pick') {
-    const file = event.target.files?.[0];
+    const files = [...(event.target.files ?? [])];
     event.target.value = '';
+    const file = files[0];
     if (!file) return;
+    if (mode === 'pick' && files.length > 1) return void pickFrames(files);
     try {
       const loaded = await loadSheet(file);
       if (loaded.image.dataUrl.length >= MAX_IMAGE_CHARS) throw new Error(`${file.name} is too big: keep sprite sheets under about 500 KB`);
@@ -94,10 +102,51 @@ export function CharacterImport({ session, targets }: { session: HostSession; ta
       setSheet(null);
       setPicking(null);
       setMaking(null);
+      setPainting(null);
       setError(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
+  }
+
+  /** Separate frame images (chosen together, or dropped): laid out as one sheet, in name order, and opened in the frame picker. */
+  async function pickFrames(files: readonly File[]) {
+    if (!target) return;
+    try {
+      const sorted = [...files].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+      const loaded = await Promise.all(sorted.map((file) => loadSheet(file)));
+      const { width, height, positions } = arrangeFrames(loaded.map((frame) => frame.image), MAX_IMAGE_SIDE, MAX_IMAGE_SIDE);
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
+      loaded.forEach((frame, index) => ctx.drawImage(frame.element, positions[index]!.x, positions[index]!.y));
+      const dataUrl = canvas.toDataURL('image/png');
+      if (dataUrl.length >= MAX_IMAGE_CHARS) throw new Error('Those frames are too big together: keep them under about 500 KB');
+      const combined = await loadSheetUrl(dataUrl);
+      setSheet(null);
+      setMaking(null);
+      setError(null);
+      setPicking({ sheet: combined, key: target.key, name: target.name });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
+  /** Files dropped on the panel: one goes to the frame picker as a sheet, several as separate frames. */
+  function drop(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const files = [...event.dataTransfer.files].filter((file) => file.type.startsWith('image/'));
+    if (files.length === 0 || !target) return;
+    if (files.length > 1) return void pickFrames(files);
+    void loadSheet(files[0]!).then(
+      (loaded) => {
+        setSheet(null);
+        setError(null);
+        setPicking({ sheet: loaded, key: target.key, name: target.name });
+      },
+      (caught: unknown) => setError(caught instanceof Error ? caught.message : String(caught)),
+    );
   }
 
   async function choosePicture(event: ChangeEvent<HTMLInputElement>) {
@@ -130,13 +179,30 @@ export function CharacterImport({ session, targets }: { session: HostSession; ta
     }
   }
 
+  /** Opens a character's finished sheet in the mini pixel editor. */
+  async function paintArt(key: string, name: string) {
+    const character = art.characters[key];
+    if (!character) return;
+    try {
+      const loaded = await loadSheetUrl(character.image.dataUrl);
+      setSheet(null);
+      setPicking(null);
+      setMaking(null);
+      setError(null);
+      setPainting({ sheet: loaded, key, name });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
   const withArt = Object.keys(art.characters);
 
   return (
-    <div className="character-import">
+    <div className="character-import" onDragOver={(event) => event.preventDefault()} onDrop={drop}>
       <p className="muted">
         A sprite sheet: square frames, 4 rows per animation (facing down, left, right, up), idle first. Only idle is needed: missing animations are acted out with simple
-        motions. Any other sheet (sprites of any size, anywhere): pick its frames yourself. Or make one from any picture: it becomes pixel art.
+        motions. Any other sheet (sprites of any size, anywhere), or separate frame images (choose several, or drop them here): pick its frames yourself. Or make one
+        from any picture: it becomes pixel art.
       </p>
       <div className="row">
         <label className="grow">
@@ -159,6 +225,7 @@ export function CharacterImport({ session, targets }: { session: HostSession; ta
             type="file"
             accept="image/png,image/gif,image/webp"
             aria-label="Pick frames from any sheet"
+            multiple
             disabled={!target}
             onChange={(event) => void choose(event, 'pick')}
           />
@@ -256,6 +323,19 @@ export function CharacterImport({ session, targets }: { session: HostSession; ta
           onCancel={() => setPicking(null)}
         />
       )}
+      {painting && art.characters[painting.key] && (
+        <PixelEditor
+          key={painting.key}
+          sheet={painting.sheet}
+          character={art.characters[painting.key]!}
+          name={painting.name}
+          {...(session.artSource(painting.key)
+            ? { note: 'Editing its frames again after painting starts from the painted sheet, not the original one.' }
+            : {})}
+          onSave={(image) => apply(painting.key, { ...art.characters[painting.key]!, image })}
+          onCancel={() => setPainting(null)}
+        />
+      )}
       {making && (
         <OnePicture
           key={`${making.key}:${making.picture.name}`}
@@ -279,6 +359,14 @@ export function CharacterImport({ session, targets }: { session: HostSession; ta
               <span className="grow">{targets.find((entry) => entry.key === key)?.label ?? key}</span>
               <button type="button" aria-label={`Edit ${key} art`} title="Change its frames, speeds, or token" onClick={() => void editArt(key, targets.find((entry) => entry.key === key)?.name ?? key)}>
                 Edit
+              </button>
+              <button
+                type="button"
+                aria-label={`Paint ${key} art`}
+                title="Touch up its pixels"
+                onClick={() => void paintArt(key, targets.find((entry) => entry.key === key)?.name ?? key)}
+              >
+                Paint
               </button>
               <button type="button" aria-label={`Reset ${key} art`} title="Back to the pack's figure" onClick={() => apply(key, null)}>
                 Reset

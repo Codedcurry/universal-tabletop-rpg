@@ -323,3 +323,96 @@ test('the DM makes a character from one picture: pixel art, a back view, and a t
   await art.getByRole('button', { name: 'Edit goblin art' }).click();
   await expect(dm.getByRole('dialog', { name: 'Pick frames' }).getByRole('button', { name: /^Remove frame/ })).toHaveCount(2);
 });
+
+/** The colour of one pixel of a frame in the pixel editor (x, y in frame pixels). */
+async function paintedPixel(canvas: import('@playwright/test').Locator, x: number, y: number, frameSize: number) {
+  return canvas.evaluate(
+    (element, [px, py, size]) => {
+      const c = element as HTMLCanvasElement;
+      const zoom = c.width / size!;
+      return [...c.getContext('2d')!.getImageData(Math.floor((px! + 0.5) * zoom), Math.floor((py! + 0.5) * zoom), 1, 1).data];
+    },
+    [x, y, frameSize],
+  );
+}
+
+test('the DM touches up a character in the pixel editor: one frame or every frame, with undo', async ({ browser }) => {
+  const { dm } = await table(browser);
+  await dm.getByRole('tab', { name: 'Art' }).click();
+  await dm.getByRole('tab', { name: 'Characters' }).click();
+  const art = dm.getByRole('tabpanel', { name: 'Characters' });
+  await art.getByLabel('Character').selectOption({ label: 'Goblin (every goblin)' });
+  await art.getByLabel('Import sprite sheet').setInputFiles(await spriteSheet(dm));
+  await art.getByRole('group', { name: 'New sprite sheet' }).getByRole('button', { name: 'Use for Goblin' }).click();
+
+  await art.getByRole('button', { name: 'Paint goblin art' }).click();
+  const editor = dm.getByRole('dialog', { name: 'Paint' });
+  // Idle and walk: 8 frames each (4 directions x 2).
+  await expect(editor.getByRole('group', { name: 'Frames' }).getByRole('button')).toHaveCount(16);
+  const canvas = editor.getByRole('img', { name: 'idle 1, down, to paint' });
+  expect(await paintedPixel(canvas, 16, 20, 32)).toEqual([221, 51, 51, 255]); // the red body
+
+  // A green dot in every frame.
+  await editor.getByLabel('Colour', { exact: true }).fill('#00ff00');
+  await editor.getByLabel('Paint on').selectOption('all');
+  const spot = (await canvas.boundingBox())!;
+  await dm.mouse.click(spot.x + (16.5 / 32) * spot.width, spot.y + (20.5 / 32) * spot.height);
+  expect(await paintedPixel(canvas, 16, 20, 32)).toEqual([0, 255, 0, 255]);
+  await editor.getByRole('button', { name: 'walk 1, down' }).click();
+  const walk = editor.getByRole('img', { name: 'walk 1, down, to paint' });
+  expect(await paintedPixel(walk, 16, 20, 32)).toEqual([0, 255, 0, 255]);
+
+  // Undo and redo.
+  await editor.getByRole('button', { name: 'Undo' }).click();
+  expect(await paintedPixel(walk, 16, 20, 32)).toEqual([51, 102, 204, 255]); // blue again
+  await editor.getByRole('button', { name: 'Redo' }).click();
+  expect(await paintedPixel(walk, 16, 20, 32)).toEqual([0, 255, 0, 255]);
+
+  // Replace colour, in this animation only: walk's blue turns green, idle's red stays.
+  await editor.getByRole('button', { name: 'Replace colour' }).click();
+  await editor.getByLabel('Paint on').selectOption('animation');
+  await dm.mouse.click(spot.x + (10.5 / 32) * spot.width, spot.y + (25.5 / 32) * spot.height);
+  expect(await paintedPixel(walk, 10, 25, 32)).toEqual([0, 255, 0, 255]);
+  await editor.getByRole('button', { name: 'idle 1, down' }).click();
+  expect(await paintedPixel(canvas, 10, 25, 32)).toEqual([221, 51, 51, 255]);
+
+  // Saved, it stays painted.
+  await editor.getByRole('button', { name: 'Save' }).click();
+  await expect(editor).toHaveCount(0);
+  await art.getByRole('button', { name: 'Paint goblin art' }).click();
+  expect(await paintedPixel(editor.getByRole('img', { name: 'idle 1, down, to paint' }), 16, 20, 32)).toEqual([0, 255, 0, 255]);
+});
+
+/** One frame image: a figure leaning by `lean` pixels. */
+async function frameFile(page: Page, lean: number, name: string) {
+  const dataUrl = await page.evaluate((x) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 20;
+    canvas.height = 30;
+    const ctx = canvas.getContext('2d')!;
+    ctx.fillStyle = '#c33';
+    ctx.fillRect(6 + x, 2, 8, 26);
+    return canvas.toDataURL('image/png');
+  }, lean);
+  return { name, mimeType: 'image/png', buffer: Buffer.from(dataUrl.split(',')[1]!, 'base64') };
+}
+
+test('the DM imports separate frame images, laid out in name order for the frame picker', async ({ browser }) => {
+  const { dm } = await table(browser);
+  await dm.getByRole('tab', { name: 'Art' }).click();
+  await dm.getByRole('tab', { name: 'Characters' }).click();
+  const art = dm.getByRole('tabpanel', { name: 'Characters' });
+  await art.getByLabel('Character').selectOption({ label: 'Goblin (every goblin)' });
+  await art
+    .getByLabel('Pick frames from any sheet')
+    .setInputFiles([await frameFile(dm, 2, 'walk_10.png'), await frameFile(dm, 0, 'walk_2.png'), await frameFile(dm, -2, 'walk_1.png')]);
+  const picker = dm.getByRole('dialog', { name: 'Pick frames' });
+  await expect(picker).toContainText('3 sprites found');
+  // In name order (walk_1, walk_2, walk_10): leaning left, upright, leaning right.
+  const boxes = await Promise.all([1, 2, 3].map((n) => picker.getByRole('button', { name: `Sprite ${n}` }).boundingBox()));
+  expect(boxes[0]!.x).toBeLessThan(boxes[1]!.x);
+  expect(boxes[1]!.x).toBeLessThan(boxes[2]!.x);
+  await picker.getByRole('button', { name: 'Sprite 1' }).click();
+  await picker.getByRole('button', { name: 'Use for Goblin' }).click();
+  await expect(art.getByRole('button', { name: 'Edit goblin art' })).toBeVisible();
+});

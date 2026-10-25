@@ -1588,3 +1588,43 @@ button.danger {
   flex-wrap: wrap;
   gap: 12px;
 }
+/* The mini pixel editor. */
+.paint-canvas {
+  max-width: 100%;
+  height: auto;
+  image-rendering: pixelated;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: repeating-conic-gradient(#2a2539 0% 25%, #221e2e 0% 50%) 50% / 16px 16px;
+  cursor: crosshair;
+  touch-action: none;
+}
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 8px 0;
+}
+.swatch {
+  width: 28px;
+  height: 28px;
+  min-height: 0;
+  padding: 0;
+  border: 2px solid var(--border);
+  border-radius: 6px;
+}
+.swatch[aria-pressed='true'] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.segmented > [aria-pressed='true'],
+.frame-strip > [aria-pressed='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #1a1400;
+}
+.picker-dialog input[type='color'] {
+  width: 56px;
+  height: 40px;
+  padding: 2px;
+}

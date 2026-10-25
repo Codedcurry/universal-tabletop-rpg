@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assembleLayout, clearBackground, findSprites, footAnchor, packRows, picksFromLayout, planCells, sheetRows } from './frames';
+import { arrangeFrames, assembleLayout, clearBackground, findSprites, footAnchor, packRows, picksFromLayout, planCells, sheetRows } from './frames';
 
 // Free-form sprite sheets (sprites of any size, anywhere, one view): find
 // each sprite, line chosen frames up by their feet in square cells, and lay
@@ -200,5 +200,45 @@ describe('picksFromLayout', () => {
       },
     };
     expect(picksFromLayout(layout, findSprites(sheet)).picks).toEqual({ side: { idle: [1] }, front: { idle: [0] }, back: { idle: [3] } });
+  });
+});
+
+describe('arrangeFrames', () => {
+  it('lays separate frames out in rows, standing on each row\'s floor, apart enough to be found', () => {
+    const { width, height, positions } = arrangeFrames(
+      [
+        { width: 10, height: 20 },
+        { width: 10, height: 16 },
+        { width: 10, height: 20 },
+      ],
+      30,
+      100,
+    );
+    // Two fit on a row (10 + gap 4 + 10), the third wraps.
+    expect(positions).toEqual([
+      { x: 0, y: 0 },
+      { x: 14, y: 4 },
+      { x: 0, y: 24 },
+    ]);
+    expect([width, height]).toEqual([24, 44]);
+  });
+
+  it('refuses frames that won\'t fit', () => {
+    expect(() => arrangeFrames([{ width: 50, height: 10 }], 40, 40)).toThrow(/wider/);
+    expect(() => arrangeFrames(Array.from({ length: 10 }, () => ({ width: 30, height: 30 })), 40, 100)).toThrow(/fit/);
+  });
+
+  it('keeps arranged frames apart, so each is its own sprite', () => {
+    const sizes = [
+      { width: 6, height: 8 },
+      { width: 6, height: 8 },
+    ];
+    const { width, height, positions } = arrangeFrames(sizes, 100, 100);
+    const sheet = image(
+      width,
+      height,
+      positions.map((at, index) => [at.x, at.y, sizes[index]!.width, sizes[index]!.height] as [number, number, number, number]),
+    );
+    expect(findSprites(sheet)).toHaveLength(2);
   });
 });

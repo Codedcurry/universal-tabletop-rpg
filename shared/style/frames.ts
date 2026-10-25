@@ -266,3 +266,42 @@ export function picksFromLayout(layout: SheetLayout, sprites: readonly Box[]): {
   }
   return { picks, faces: faces ?? 'left' };
 }
+
+/**
+ * Separate frame images laid out as one sheet, to pick from: left to right
+ * in rows at most `maxWidth` across, each standing on its row's floor, with
+ * gaps wide enough that they're found apart. Throws if they won't fit.
+ */
+export function arrangeFrames(
+  sizes: readonly { readonly width: number; readonly height: number }[],
+  maxWidth: number,
+  maxHeight: number,
+): { width: number; height: number; positions: { x: number; y: number }[] } {
+  const gap = FRAME_GAP + 2;
+  const rows: { indexes: number[]; width: number; height: number }[] = [];
+  sizes.forEach((size, index) => {
+    if (size.width > maxWidth) throw new Error(`Frame ${index + 1} is wider than ${maxWidth} pixels`);
+    const row = rows[rows.length - 1];
+    if (row && row.width + gap + size.width <= maxWidth) {
+      row.indexes.push(index);
+      row.width += gap + size.width;
+      row.height = Math.max(row.height, size.height);
+    } else {
+      rows.push({ indexes: [index], width: size.width, height: size.height });
+    }
+  });
+  const positions: { x: number; y: number }[] = [];
+  let top = 0;
+  for (const row of rows) {
+    let left = 0;
+    for (const index of row.indexes) {
+      const size = sizes[index]!;
+      positions[index] = { x: left, y: top + row.height - size.height };
+      left += size.width + gap;
+    }
+    top += row.height + gap;
+  }
+  const height = Math.max(1, top - gap);
+  if (height > maxHeight) throw new Error(`The frames don't fit in ${maxWidth} x ${maxHeight} pixels: use fewer, or smaller ones`);
+  return { width: Math.max(1, ...rows.map((row) => row.width)), height, positions };
+}
