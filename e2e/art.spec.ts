@@ -117,6 +117,16 @@ test('the DM imports a character sprite sheet: sliced, previewed, with a round t
   await preview.getByRole('button', { name: 'Use for Goblin' }).click();
 
   await expect(ana.getByTestId('token').filter({ hasText: 'Goblin' })).toHaveAttribute('data-art', 'custom');
+
+  // It can be edited in the frame picker: its frames are found on the sheet, by view.
+  await art.getByRole('button', { name: 'Edit goblin art' }).click();
+  const picker = dm.getByRole('dialog', { name: 'Pick frames' });
+  await expect(picker.getByRole('button', { name: /^Remove frame/ })).toHaveCount(2);
+  await expect(picker.getByRole('combobox', { name: /^View/ })).toContainText('front view (facing you) (2)');
+  await expect(picker.getByRole('combobox', { name: /^View/ })).toContainText('back view (2)');
+  await picker.getByRole('button', { name: 'Cancel' }).click();
+  await expect(picker).toHaveCount(0);
+
   await art.getByRole('button', { name: 'Reset goblin art' }).click();
   await expect(ana.getByTestId('token').filter({ hasText: 'Goblin' })).toHaveAttribute('data-art', 'pack');
 });
@@ -228,4 +238,22 @@ test('the DM picks frames from a free-form sheet in a pop-up window, by box or b
   await picker.getByRole('button', { name: 'Use for Goblin' }).click();
   await expect(picker).toHaveCount(0);
   await expect(ana.getByTestId('token').filter({ hasText: 'Goblin' })).toHaveAttribute('data-art', 'custom');
+
+  // Editing opens it as it was left: frames, views, and speeds; a victory frame is added.
+  await art.getByRole('button', { name: 'Edit goblin art' }).click();
+  await expect(picker).toContainText('5 sprites found');
+  await expect(frames).toHaveCount(1);
+  await expect(picker.getByRole('combobox', { name: /^View/ })).toContainText('front view (facing you) (1)');
+  await expect(picker.getByLabel('idle speed (frames a second)')).toHaveValue('4');
+  await picker.getByRole('combobox', { name: /^Animation/ }).selectOption('walk');
+  await expect(frames).toHaveCount(2);
+  await expect(frames.nth(1)).toHaveText(/#4/);
+  await picker.getByRole('combobox', { name: /^Animation/ }).selectOption('victory');
+  await picker.getByRole('button', { name: 'Sprite 5' }).click();
+  await expect(picker).toContainText('animations: idle, walk, victory');
+  await picker.getByRole('button', { name: 'Use for Goblin' }).click();
+  await expect(picker).toHaveCount(0);
+  await art.getByRole('button', { name: 'Edit goblin art' }).click();
+  await picker.getByRole('combobox', { name: /^Animation/ }).selectOption('victory');
+  await expect(frames).toHaveCount(1);
 });

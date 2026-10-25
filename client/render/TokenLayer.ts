@@ -415,6 +415,7 @@ export class TokenLayer {
       token.direction = null; // the pack's figure comes back on the next frame
       token.sprite.scaling.x = 1;
       token.sprite.scaling.y = 1;
+      token.sprite.position.y = SPRITE_H / 2;
       (token.disc.material as StandardMaterial).diffuseTexture = token.discTexture;
       return;
     }
@@ -428,6 +429,8 @@ export class TokenLayer {
     const grow = art.layout.bodySize ? art.layout.frameSize / art.layout.bodySize : 1;
     token.sprite.scaling.x = (SPRITE_H / SPRITE_W) * grow;
     token.sprite.scaling.y = grow;
+    // The plane grows around its middle: lift it so the feet stay on the ground.
+    token.sprite.position.y = (SPRITE_H * grow) / 2;
     if (art.token) {
       const round = new Texture(art.token.dataUrl, this.scene, true, true, Texture.TRILINEAR_SAMPLINGMODE);
       round.hasAlpha = true;

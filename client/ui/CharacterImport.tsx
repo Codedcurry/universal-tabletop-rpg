@@ -2,10 +2,10 @@ import { type ChangeEvent, useMemo, useState } from 'react';
 import { CLIPS, type Clip } from '@shared/anim';
 import type { SpriteDirection } from '@shared/camera';
 import type { HostSession } from '@shared/net';
-import { MAX_IMAGE_CHARS, MAX_IMAGE_SIDE } from '@shared/style/art';
+import { type CharacterArt, type CharacterSource, MAX_IMAGE_CHARS, MAX_IMAGE_SIDE } from '@shared/style/art';
 import { DEFAULT_FPS, SHEET_DIRECTIONS, type SheetLayout, guessFrameSize, portraitRect, sliceSheet } from '@shared/style/sheet';
-import { FramePicker } from './FramePicker';
-import { type Crop, Preview, type Sheet, SpeedField, TokenEditor, loadSheet, makeToken, withSpeeds } from './spritePreview';
+import { FramePicker, type PickerStart } from './FramePicker';
+import { type Crop, Preview, type Sheet, SpeedField, TokenEditor, loadSheet, loadSheetUrl, makeToken, withSpeeds } from './spritePreview';
 
 // Importing a character's sprite sheet in the Art tab: choose who it's for
 // (a kind of monster, or one creature), pick the PNG, and the sheet is
@@ -14,6 +14,7 @@ import { type Crop, Preview, type Sheet, SpeedField, TokenEditor, loadSheet, mak
 // friendly warnings and a round token (cut from the portrait, framed by
 // dragging), before it's used. A sheet that isn't laid out that
 // way (sprites of any size, anywhere) opens in the frame picker instead.
+// Any character's art can be edited there again later.
 
 interface Sliced {
   readonly layout: SheetLayout;
@@ -32,8 +33,8 @@ export function CharacterImport({ session, targets }: { session: HostSession; ta
   const art = session.snapshot().art;
   const [targetKey, setTargetKey] = useState(targets[0]?.key ?? '');
   const [sheet, setSheet] = useState<Sheet | null>(null);
-  /** A free-form sheet, open in the frame picker. */
-  const [picking, setPicking] = useState<Sheet | null>(null);
+  /** A sheet open in the frame picker: a new one for the chosen character, or one being edited. */
+  const [picking, setPicking] = useState<{ sheet: Sheet; key: string; name: string; start?: PickerStart } | null>(null);
   const [frameSize, setFrameSize] = useState(32);
   const [clip, setClip] = useState<Clip>('idle');
   const [direction, setDirection] = useState<SpriteDirection>('down');
@@ -69,7 +70,7 @@ export function CharacterImport({ session, targets }: { session: HostSession; ta
       setError(null);
       if (mode === 'pick') {
         setSheet(null);
-        setPicking(loaded);
+        if (target) setPicking({ sheet: loaded, key: target.key, name: target.name });
         return;
       }
       setPicking(null);
@@ -84,12 +85,27 @@ export function CharacterImport({ session, targets }: { session: HostSession; ta
     }
   }
 
-  function apply(key: string, character: Parameters<HostSession['setCharacterArt']>[1]) {
+  function apply(key: string, character: CharacterArt | null, source: CharacterSource | null = null) {
     try {
-      session.setCharacterArt(key, character);
+      session.setCharacterArt(key, character, source);
       setSheet(null);
       setPicking(null);
       setError(null);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
+  /** Opens a character's art in the frame picker: as it was built there, or found on its finished sheet. */
+  async function editArt(key: string, name: string) {
+    const character = art.characters[key];
+    if (!character) return;
+    const source = session.artSource(key);
+    try {
+      const loaded = await loadSheetUrl((source ?? character).image.dataUrl);
+      setSheet(null);
+      setError(null);
+      setPicking({ sheet: loaded, key, name, start: source ? { source, layout: character.layout } : { layout: character.layout } });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
@@ -207,12 +223,13 @@ export function CharacterImport({ session, targets }: { session: HostSession; ta
           </div>
         </fieldset>
       )}
-      {picking && target && (
+      {picking && (
         <FramePicker
-          key={picking.image.dataUrl}
-          sheet={picking}
-          name={target.name}
-          onUse={(character) => apply(target.key, character)}
+          key={`${picking.key}:${picking.sheet.image.dataUrl.length}`}
+          sheet={picking.sheet}
+          name={picking.name}
+          {...(picking.start ? { start: picking.start } : {})}
+          onUse={(character, source) => apply(picking.key, character, source)}
           onCancel={() => setPicking(null)}
         />
       )}
@@ -228,6 +245,9 @@ export function CharacterImport({ session, targets }: { session: HostSession; ta
             <li key={key}>
               {art.characters[key]?.token ? <img src={art.characters[key]?.token?.dataUrl} alt="" className="tile-thumb" /> : null}
               <span className="grow">{targets.find((entry) => entry.key === key)?.label ?? key}</span>
+              <button type="button" aria-label={`Edit ${key} art`} title="Change its frames, speeds, or token" onClick={() => void editArt(key, targets.find((entry) => entry.key === key)?.name ?? key)}>
+                Edit
+              </button>
               <button type="button" aria-label={`Reset ${key} art`} title="Back to the pack's figure" onClick={() => apply(key, null)}>
                 Reset
               </button>

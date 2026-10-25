@@ -224,3 +224,42 @@ export function assembleLayout(
   }
   return bodySize === undefined ? { frameSize, clips } : { frameSize, clips, bodySize };
 }
+
+/** Frames picked for each view and animation, as indexes of a sheet's sprites (from `findSprites`). */
+export type FramePicks = Readonly<Partial<Record<View, Readonly<Partial<Record<Clip, readonly number[]>>>>>>;
+
+/**
+ * The picks a layout's frames come from, to edit a finished sheet: each
+ * frame's sprite is the one whose middle is in its cell. Left (or right, if
+ * left is the mirrored one) is the side view, facing down the front, facing
+ * up the back, unless they only stand in for another view.
+ */
+export function picksFromLayout(layout: SheetLayout, sprites: readonly Box[]): { picks: FramePicks; faces: 'left' | 'right' } {
+  const size = layout.frameSize;
+  const inCell = (row: number, column: number) =>
+    sprites.findIndex((box) => {
+      const x = box.x + box.width / 2;
+      const y = box.y + box.height / 2;
+      return x >= column * size && x < (column + 1) * size && y >= row * size && y < (row + 1) * size;
+    });
+  const frames = (run: SheetRow) =>
+    Array.from({ length: run.frames }, (_, frame) => inCell(run.row, (run.column ?? 0) + frame)).filter((index) => index >= 0);
+  const same = (a: SheetRow, b: SheetRow) => a.row === b.row && (a.column ?? 0) === (b.column ?? 0);
+
+  const picks: Partial<Record<View, Partial<Record<Clip, number[]>>>> = {};
+  let faces: 'left' | 'right' | null = null;
+  for (const clip of CLIPS) {
+    const rows = layout.clips[clip];
+    if (!rows) continue;
+    const side = rows.left.mirror ? rows.right : rows.left;
+    faces ??= rows.left.mirror ? 'right' : 'left';
+    const runs: [View, SheetRow][] = [['side', side]];
+    if (!same(rows.down, side)) runs.push(['front', rows.down]);
+    if (!same(rows.up, side) && !same(rows.up, rows.down)) runs.push(['back', rows.up]);
+    for (const [view, run] of runs) {
+      const found = frames(run);
+      if (found.length > 0) picks[view] = { ...picks[view], [clip]: found };
+    }
+  }
+  return { picks, faces: faces ?? 'left' };
+}

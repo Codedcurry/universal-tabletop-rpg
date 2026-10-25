@@ -4,7 +4,7 @@ import { type MapData, validateMapData } from '../map';
 import { type CreatureSheet, type GameSystem, validateGameSystem } from '../system';
 import { type LogEntry, MAX_NAME_LENGTH, type RollMode } from './protocol';
 import { normalizeRoomCode } from './room';
-import { type CustomArt, validateCustomArt } from '../style/art';
+import { type CharacterSource, type CustomArt, sourceProblem, validateCustomArt } from '../style/art';
 
 /**
  * A saved game: everything the DM's side needs to carry on after a reload,
@@ -46,6 +46,8 @@ export interface SavedGame {
   };
   readonly players: readonly SavedPlayer[];
   readonly notes: readonly { readonly cell: Cell; readonly text: string }[];
+  /** How the DM built characters in the frame picker, by art key (saves from before it have none). */
+  readonly artSources?: Readonly<Record<string, CharacterSource>>;
   readonly nextPlayerNumber: number;
   readonly nextSeq: number;
 }
@@ -112,6 +114,13 @@ export function validateSavedGame(data: unknown): SavedGameValidation {
   }
   if (!Array.isArray(data.notes) || !data.notes.every((note) => isObject(note) && isObject(note.cell) && typeof note.text === 'string')) {
     return fail('The notes are broken');
+  }
+  if (data.artSources !== undefined) {
+    if (!isObject(data.artSources)) return fail('The character frames are broken');
+    for (const [key, source] of Object.entries(data.artSources)) {
+      const problem = sourceProblem(source);
+      if (problem) return fail(`The frames for ${key} ${problem}`);
+    }
   }
   for (const counter of ['nextPlayerNumber', 'nextSeq'] as const) {
     const value = data[counter];

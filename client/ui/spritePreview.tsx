@@ -21,25 +21,29 @@ export function loadSheet(file: File): Promise<Sheet> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error(`Couldn't read ${file.name}`));
-    reader.onload = () => {
-      const dataUrl = String(reader.result);
-      const element = new Image();
-      element.onload = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = element.naturalWidth;
-        canvas.height = element.naturalHeight;
-        const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
-        ctx.drawImage(element, 0, 0);
-        resolve({
-          image: { dataUrl, width: element.naturalWidth, height: element.naturalHeight },
-          element,
-          pixels: ctx.getImageData(0, 0, canvas.width, canvas.height),
-        });
-      };
-      element.onerror = () => reject(new Error(`${file.name} isn't an image this browser can show`));
-      element.src = dataUrl;
-    };
+    reader.onload = () => loadSheetUrl(String(reader.result), file.name).then(resolve, reject);
     reader.readAsDataURL(file);
+  });
+}
+
+/** A sheet from an image's data URL (one already in the game, to edit). */
+export function loadSheetUrl(dataUrl: string, name = 'The sheet'): Promise<Sheet> {
+  return new Promise((resolve, reject) => {
+    const element = new Image();
+    element.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = element.naturalWidth;
+      canvas.height = element.naturalHeight;
+      const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
+      ctx.drawImage(element, 0, 0);
+      resolve({
+        image: { dataUrl, width: element.naturalWidth, height: element.naturalHeight },
+        element,
+        pixels: ctx.getImageData(0, 0, canvas.width, canvas.height),
+      });
+    };
+    element.onerror = () => reject(new Error(`${name} isn't an image this browser can show`));
+    element.src = dataUrl;
   });
 }
 

@@ -22,7 +22,7 @@ import {
 import { DiceNotationError, RollReplayError, type RollResult, replayRoll, roll } from '../dice';
 import { type Cell, cellKey } from '../grid';
 import { SAVED_GAME_FORMAT, SAVED_GAME_VERSION, type SavedGame } from './saved';
-import { type CharacterArt, EMPTY_ART, type ImageAsset, validateCustomArt, withCharacter, withTile } from '../style/art';
+import { type CharacterArt, type CharacterSource, EMPTY_ART, type ImageAsset, sourceProblem, validateCustomArt, withCharacter, withTile } from '../style/art';
 import { type MapPatch, applyPatch, isEmptyPatch } from '../editor';
 import { type MapData, type WorldMap, createWorldMap } from '../map';
 import type { RandomSource } from '../random';
@@ -110,6 +110,8 @@ export class HostSession {
   private readonly players: PlayerRecord[] = [];
   /** DM-only notes on tiles, by cell key. Never part of the public state. */
   private readonly dmNotes = new Map<string, DmNote>();
+  /** How the DM built each character in the frame picker, by art key, to edit it again. Never part of the public state. */
+  private readonly artSources = new Map<string, CharacterSource>();
   private nextPlayerNumber = 1;
   private nextSeq = 1;
 
@@ -147,6 +149,7 @@ export class HostSession {
       state: { dmTitle, rollMode, playersControlOwn, fogOfWar, system, map, combat, log, art },
       players: this.players.map(({ id, token, name, character, granted }) => ({ id, token, name, character, granted: [...granted] })),
       notes: this.notes(),
+      artSources: Object.fromEntries(this.artSources),
       nextPlayerNumber: this.nextPlayerNumber,
       nextSeq: this.nextSeq,
     };
@@ -177,6 +180,8 @@ export class HostSession {
     }
     this.dmNotes.clear();
     for (const note of saved.notes) this.dmNotes.set(cellKey(note.cell), note);
+    this.artSources.clear();
+    for (const [key, source] of Object.entries(saved.artSources ?? {})) if (this.state.art.characters[key]) this.artSources.set(key, source);
     this.nextPlayerNumber = saved.nextPlayerNumber;
     this.nextSeq = saved.nextSeq;
     this.publishPlayers();
@@ -293,12 +298,25 @@ export class HostSession {
     this.publish({ kind: 'art', art });
   }
 
-  /** Sets (or, with null, removes) a character's sprite sheet, by art key (a monster kind, or one creature). Throws if it won't do. */
-  setCharacterArt(key: string, character: CharacterArt | null): void {
+  /**
+   * Sets (or, with null, removes) a character's sprite sheet, by art key (a
+   * monster kind, or one creature), with how it was built if it came from the
+   * frame picker (kept for the DM alone). Throws if it won't do.
+   */
+  setCharacterArt(key: string, character: CharacterArt | null, source: CharacterSource | null = null): void {
     const art = withCharacter(this.state.art, key, character);
     const checked = validateCustomArt(art);
     if (!checked.ok) throw new Error(checked.error);
+    const problem = source && sourceProblem(source);
+    if (problem) throw new Error(`The frames for ${key} ${problem}`);
+    if (character && source) this.artSources.set(key, source);
+    else this.artSources.delete(key);
     this.publish({ kind: 'art', art });
+  }
+
+  /** How a character was built in the frame picker, if it was. */
+  artSource(key: string): CharacterSource | null {
+    return this.artSources.get(key) ?? null;
   }
 
   /** Fog of war: players see only what their creatures can see. */

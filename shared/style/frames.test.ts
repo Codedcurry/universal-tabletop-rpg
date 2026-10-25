@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assembleLayout, clearBackground, findSprites, footAnchor, packRows, planCells, sheetRows } from './frames';
+import { assembleLayout, clearBackground, findSprites, footAnchor, packRows, picksFromLayout, planCells, sheetRows } from './frames';
 
 // Free-form sprite sheets (sprites of any size, anywhere, one view): find
 // each sprite, line chosen frames up by their feet in square cells, and lay
@@ -159,5 +159,46 @@ describe('clearBackground', () => {
   it('leaves a transparent sheet alone', () => {
     const sheet = image(10, 10, [[2, 2, 4, 4]]);
     expect(clearBackground(sheet)).toBe(sheet);
+  });
+});
+
+describe('picksFromLayout', () => {
+  it('finds the sprites a finished sheet was made from, to edit it again', () => {
+    // A 16-pixel sheet, 3 across: idle side (2 frames) then front (1) on row 0; walk side (3) on row 1.
+    const sheet = image(48, 32, [
+      [4, 2, 8, 12],
+      [20, 2, 8, 12],
+      [36, 2, 8, 12],
+      [4, 18, 8, 12],
+      [20, 18, 8, 12],
+      [36, 18, 8, 12],
+    ]);
+    const sprites = findSprites(sheet);
+    const layout = assembleLayout({ idle: { side: 2, front: 1 }, walk: { side: 3 } }, 16, 'right', { columns: 3 });
+    expect(picksFromLayout(layout, sprites)).toEqual({
+      picks: { side: { idle: [0, 1], walk: [3, 4, 5] }, front: { idle: [2] } },
+      faces: 'right',
+    });
+  });
+
+  it('reads a grid sheet\'s four directions as side, front, and back', () => {
+    const sheet = image(16, 64, [
+      [4, 2, 8, 12],
+      [4, 18, 8, 12],
+      [4, 34, 8, 12],
+      [4, 50, 8, 12],
+    ]);
+    const layout = {
+      frameSize: 16,
+      clips: {
+        idle: {
+          down: { row: 0, frames: 1, mirror: false },
+          left: { row: 1, frames: 1, mirror: false },
+          right: { row: 2, frames: 1, mirror: false },
+          up: { row: 3, frames: 1, mirror: false },
+        },
+      },
+    };
+    expect(picksFromLayout(layout, findSprites(sheet)).picks).toEqual({ side: { idle: [1] }, front: { idle: [0] }, back: { idle: [3] } });
   });
 });

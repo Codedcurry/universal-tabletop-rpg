@@ -1,4 +1,5 @@
 import { CLIPS } from '../anim';
+import type { FramePicks } from './frames';
 import { MAX_FPS, MIN_FPS, type SheetLayout } from './sheet';
 
 /**
@@ -37,6 +38,41 @@ export interface CharacterArt {
   readonly layout: SheetLayout;
   /** A round token for top-down view (cut from the portrait), if there is one. */
   readonly token: ImageAsset | null;
+}
+
+/**
+ * How a character was put together in the frame picker, so the DM can edit
+ * it again: the original sheet, the frames picked from it, and the token's
+ * framing. The DM's alone, like their notes: never sent to players.
+ */
+export interface CharacterSource {
+  readonly image: ImageAsset;
+  readonly picks: FramePicks;
+  readonly faces: 'left' | 'right';
+  /** The token's sprite and the square of the sheet it shows, if the DM framed one. */
+  readonly token: { readonly sprite: number; readonly crop: { readonly x: number; readonly y: number; readonly size: number } } | null;
+}
+
+/** What's wrong with a character's source, if anything. */
+export function sourceProblem(value: unknown): string | null {
+  if (!isObject(value)) return 'is missing';
+  const image = imageProblem(value.image);
+  if (image) return `image ${image}`;
+  if (value.faces !== 'left' && value.faces !== 'right') return 'faces neither left nor right';
+  if (!isObject(value.picks)) return 'has no frames';
+  for (const clips of Object.values(value.picks)) {
+    if (!isObject(clips)) return 'has broken frames';
+    for (const frames of Object.values(clips)) {
+      if (!Array.isArray(frames) || !frames.every((index) => Number.isInteger(index) && index >= 0)) return 'has broken frames';
+    }
+  }
+  const { token } = value;
+  if (token !== null) {
+    if (!isObject(token) || !Number.isInteger(token.sprite) || !isObject(token.crop)) return 'has a broken token';
+    const { x, y, size } = token.crop;
+    if (![x, y, size].every((n) => typeof n === 'number' && Number.isFinite(n)) || (size as number) <= 0) return 'has a broken token';
+  }
+  return null;
 }
 
 export const EMPTY_ART: CustomArt = { format: ART_FORMAT, version: ART_VERSION, tiles: {}, characters: {} };

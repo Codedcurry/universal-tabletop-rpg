@@ -1,8 +1,8 @@
 import { type PointerEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { CLIPS, type Clip } from '@shared/anim';
-import { type CharacterArt, type ImageAsset, MAX_IMAGE_CHARS, MAX_IMAGE_SIDE } from '@shared/style/art';
-import { type Box, type FrameCounts, VIEWS, type View, assembleLayout, clearBackground, findSprites, packRows, planCells, sheetRows } from '@shared/style/frames';
+import { type CharacterArt, type CharacterSource, type ImageAsset, MAX_IMAGE_CHARS, MAX_IMAGE_SIDE } from '@shared/style/art';
+import { type Box, type FrameCounts, VIEWS, type View, assembleLayout, clearBackground, findSprites, packRows, picksFromLayout, planCells, sheetRows } from '@shared/style/frames';
 import { DEFAULT_FPS, type SheetLayout } from '@shared/style/sheet';
 import { type Crop, Preview, type Sheet, SpeedField, TokenEditor, makeToken, withSpeeds } from './spritePreview';
 
@@ -14,7 +14,7 @@ import { type Crop, Preview, type Sheet, SpeedField, TokenEditor, makeToken, wit
 // and can set its speed. The frames are lined up by their feet in square
 // cells and laid out as a standard sheet, the other side mirrored, and
 // previewed before use. The token can be cut from any sprite, framed by
-// dragging.
+// dragging. Editing a character opens it again where it was left.
 
 /** A drag shorter than this (in screen pixels) is a click. */
 const DRAG_PX = 6;
@@ -26,7 +26,13 @@ interface Composed {
 }
 
 /** Frames picked for each view and animation, as indexes of found sprites. */
-type Picks = Partial<Record<View, Partial<Record<Clip, number[]>>>>;
+type Picks = Partial<Record<View, Partial<Record<Clip, readonly number[]>>>>;
+
+/** Where an edit starts: how the character was built, or (for a sheet from elsewhere) its finished layout. */
+export interface PickerStart {
+  readonly source?: CharacterSource;
+  readonly layout?: SheetLayout;
+}
 
 const VIEW_LABELS: Record<View, string> = { side: 'side view', front: 'front view (facing you)', back: 'back view' };
 
@@ -82,7 +88,19 @@ function between(a: { x: number; y: number }, b: { x: number; y: number }): Box 
   return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), width: Math.abs(a.x - b.x), height: Math.abs(a.y - b.y) };
 }
 
-export function FramePicker({ sheet, name, onUse, onCancel }: { sheet: Sheet; name: string; onUse: (character: CharacterArt) => void; onCancel: () => void }) {
+export function FramePicker({
+  sheet,
+  name,
+  start,
+  onUse,
+  onCancel,
+}: {
+  sheet: Sheet;
+  name: string;
+  start?: PickerStart;
+  onUse: (character: CharacterArt, source: CharacterSource) => void;
+  onCancel: () => void;
+}) {
   // The sheet with any solid background cleared: to find the sprites on, show, and copy from.
   const { clean, cleanUrl, pixels, sprites } = useMemo(() => {
     const { width, height } = sheet.pixels;
@@ -94,13 +112,15 @@ export function FramePicker({ sheet, name, onUse, onCancel }: { sheet: Sheet; na
     (clean.getContext('2d') as CanvasRenderingContext2D).putImageData(pixels, 0, 0);
     return { clean, cleanUrl: clean.toDataURL('image/png'), pixels, sprites: findSprites(pixels) };
   }, [sheet]);
-  const [picks, setPicks] = useState<Picks>({});
+  // Editing: the frames as they were picked, or as found on a finished sheet.
+  const [begun] = useState(() => start?.source ?? (start?.layout ? { ...picksFromLayout(start.layout, sprites), token: null } : null));
+  const [picks, setPicks] = useState<Picks>(begun?.picks ?? {});
   const [clip, setClip] = useState<Clip>('idle');
   const [view, setView] = useState<View>('side');
-  const [faces, setFaces] = useState<'left' | 'right'>('left');
-  const [speeds, setSpeeds] = useState<Partial<Record<Clip, number>>>({});
+  const [faces, setFaces] = useState<'left' | 'right'>(begun?.faces ?? 'left');
+  const [speeds, setSpeeds] = useState<Partial<Record<Clip, number>>>(start?.layout?.fps ?? {});
   /** The token's sprite and framing, once the DM chooses; until then, the first idle frame's head. */
-  const [token, setToken] = useState<{ sprite: number; crop: Crop } | null>(null);
+  const [token, setToken] = useState<{ sprite: number; crop: Crop } | null>(begun?.token ?? null);
   /** Whether the next sprite clicked is for the token, not an animation. */
   const [choosingToken, setChoosingToken] = useState(false);
   const composed = useMemo(() => compose(clean, pixels, sprites, picks, faces), [clean, pixels, sprites, picks, faces]);
@@ -321,7 +341,10 @@ export function FramePicker({ sheet, name, onUse, onCancel }: { sheet: Sheet; na
             type="button"
             className="primary"
             disabled={!layout || typeof composed === 'string'}
-            onClick={() => layout && typeof composed !== 'string' && onUse({ image: composed.image, layout, token: tokenCrop ? makeToken(clean, tokenCrop) : null })}
+            onClick={() => layout && typeof composed !== 'string' && onUse(
+                { image: composed.image, layout, token: tokenCrop ? makeToken(clean, tokenCrop) : null },
+                { image: sheet.image, picks, faces, token: token ?? (tokenCrop && tokenSprite !== null ? { sprite: tokenSprite, crop: tokenCrop } : null) },
+              )}
           >
             Use for {name}
           </button>

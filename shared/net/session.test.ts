@@ -4,7 +4,7 @@ import { applyEdit, diffMaps } from '../editor';
 import { createWorldMap, rectangleTiles, type MapData } from '../map';
 import type { CreatureSheet } from '../system';
 import { skirmish } from '../system/samples/skirmish';
-import { type ClientSession, HEARTBEAT_INTERVAL_MS, HEARTBEAT_TIMEOUT_MS, type LogEntry, PROTOCOL_VERSION } from './index';
+import { type ClientSession, HEARTBEAT_INTERVAL_MS, HEARTBEAT_TIMEOUT_MS, type LogEntry, PROTOCOL_VERSION, validateSavedGame } from './index';
 import { type TestPlayer, createTestNetwork } from './testing';
 
 const anaSheet: CreatureSheet = {
@@ -833,6 +833,25 @@ describe('character art', () => {
     network.host.setCharacterArt('goblin', null);
     network.flush();
     expect(ana.session.state?.art.characters).toEqual({});
+  });
+
+  it('keeps how a character was built for the DM alone, to edit it again; saved, and gone with the art', () => {
+    const network = createTestNetwork();
+    const ana = network.join('Ana');
+    const source = { image: sheet, picks: { side: { idle: [0, 1] } }, faces: 'left' as const, token: { sprite: 0, crop: { x: 1, y: 2, size: 12 } } };
+    network.host.setCharacterArt('goblin', goblinArt, source);
+    network.flush();
+    expect(network.host.artSource('goblin')).toEqual(source);
+    expect(JSON.stringify(ana.session.state)).not.toContain('"picks"');
+    expect(JSON.stringify(network.host.snapshot())).not.toContain('"picks"');
+
+    const saved = network.host.saveGame('CAVE42');
+    expect(validateSavedGame(JSON.parse(JSON.stringify(saved))).ok).toBe(true);
+    expect(createTestNetwork({ restore: saved }).host.artSource('goblin')).toEqual(source);
+
+    network.host.setCharacterArt('goblin', null);
+    expect(network.host.artSource('goblin')).toBeNull();
+    expect(() => network.host.setCharacterArt('goblin', goblinArt, { ...source, faces: 'up' as 'left' })).toThrow(/faces/);
   });
 
   it('refuses a sheet layout that doesn\'t fit its image', () => {
