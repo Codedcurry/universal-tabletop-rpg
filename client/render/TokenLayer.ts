@@ -414,6 +414,7 @@ export class TokenLayer {
       token.custom = null;
       token.direction = null; // the pack's figure comes back on the next frame
       token.sprite.scaling.x = 1;
+      token.sprite.scaling.y = 1;
       (token.disc.material as StandardMaterial).diffuseTexture = token.discTexture;
       return;
     }
@@ -422,8 +423,11 @@ export class TokenLayer {
     texture.wrapU = Texture.CLAMP_ADDRESSMODE;
     texture.wrapV = Texture.CLAMP_ADDRESSMODE;
     token.material.diffuseTexture = texture;
-    // Square frames: a square sprite, as tall as the pack's figures.
-    token.sprite.scaling.x = SPRITE_H / SPRITE_W;
+    // Square frames: a square sprite, as tall as the pack's figures; frames with room for
+    // weapons are drawn bigger, so the body itself is that tall.
+    const grow = art.layout.bodySize ? art.layout.frameSize / art.layout.bodySize : 1;
+    token.sprite.scaling.x = (SPRITE_H / SPRITE_W) * grow;
+    token.sprite.scaling.y = grow;
     if (art.token) {
       const round = new Texture(art.token.dataUrl, this.scene, true, true, Texture.TRILINEAR_SAMPLINGMODE);
       round.hasAlpha = true;

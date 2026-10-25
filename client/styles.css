@@ -1450,3 +1450,54 @@ button.danger {
 .character-import {
   margin-top: 16px;
 }
+/* Art tab: Tiles | Characters. */
+.art-tabs {
+  display: flex;
+  margin-bottom: 12px;
+}
+.art-tabs > [role='tab'] {
+  flex: 1;
+  min-height: 40px;
+}
+.art-tabs > [role='tab'][aria-selected='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #1a1400;
+}
+/* The frame picker: the sheet with a clickable box on each sprite. */
+.sprite-sheet-view {
+  overflow: auto;
+  max-height: 360px;
+  margin: 8px 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: repeating-conic-gradient(#2a2539 0% 25%, #221e2e 0% 50%) 50% / 16px 16px;
+}
+.sprite-sheet-view img {
+  display: block;
+  image-rendering: pixelated;
+}
+.sprite-box {
+  position: absolute;
+  min-height: 0;
+  padding: 0;
+  border: 1px dashed rgba(255, 255, 255, 0.35);
+  border-radius: 2px;
+  background: transparent;
+}
+.sprite-box:hover,
+.sprite-box:focus-visible {
+  border: 1px solid var(--accent);
+  background: rgba(224, 180, 76, 0.15);
+}
+.sprite-box[aria-pressed='true'] {
+  border: 2px solid var(--accent);
+  background: rgba(224, 180, 76, 0.25);
+}
+.frame-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-height: 32px;
+  align-items: center;
+}

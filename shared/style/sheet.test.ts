@@ -119,6 +119,12 @@ describe('portraits and art keys', () => {
     expect(portraitRect(layout)).toEqual({ x: 4, y: 0, size: 24 });
   });
 
+  it('takes the body top, not the frame top, when the frames have room for weapons', () => {
+    const { layout } = sliceSheet(sheet(32, 2, 4, () => true), 32);
+    // A 20-pixel body standing at the bottom middle of 32-pixel frames.
+    expect(portraitRect({ ...layout, bodySize: 20 })).toEqual({ x: 9, y: 12, size: 15 });
+  });
+
   it('shares art between creatures of a kind: goblin-2 uses goblin\'s art unless it has its own', () => {
     expect(artKeyFor('goblin-2', ['goblin'])).toBe('goblin');
     expect(artKeyFor('goblin-2', ['goblin', 'goblin-2'])).toBe('goblin-2');

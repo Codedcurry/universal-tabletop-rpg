@@ -52,7 +52,7 @@ async function png(page: Page, width: number, height: number) {
 test('the DM imports a tile texture, previews it, and every player sees it', async ({ browser }) => {
   const { dm, ana } = await table(browser);
   await dm.getByRole('tab', { name: 'Art' }).click();
-  const art = dm.getByRole('tabpanel', { name: 'Art' });
+  const art = dm.getByRole('tabpanel', { name: 'Tiles' });
 
   // A badly sized one first: it warns, and can be cancelled.
   await art.getByLabel('Import grass tile').setInputFiles(await png(dm, 30, 20));
@@ -104,7 +104,8 @@ test('the DM imports a character sprite sheet: sliced, previewed, with a round t
   await expect(ana.getByTestId('token').filter({ hasText: 'Goblin' })).toHaveAttribute('data-art', 'pack');
 
   await dm.getByRole('tab', { name: 'Art' }).click();
-  const art = dm.getByRole('tabpanel', { name: 'Art' });
+  await dm.getByRole('tab', { name: 'Characters' }).click();
+  const art = dm.getByRole('tabpanel', { name: 'Characters' });
   await art.getByLabel('Character').selectOption({ label: 'Goblin (every goblin)' });
   await art.getByLabel('Import sprite sheet').setInputFiles(await spriteSheet(dm));
   const preview = art.getByRole('group', { name: 'New sprite sheet' });
@@ -118,4 +119,70 @@ test('the DM imports a character sprite sheet: sliced, previewed, with a round t
   await expect(ana.getByTestId('token').filter({ hasText: 'Goblin' })).toHaveAttribute('data-art', 'custom');
   await art.getByRole('button', { name: 'Reset goblin art' }).click();
   await expect(ana.getByTestId('token').filter({ hasText: 'Goblin' })).toHaveAttribute('data-art', 'pack');
+});
+
+/** A free-form battle sheet: five sprites of different sizes scattered on a solid background, one holding a spear out. */
+async function battleSheet(page: Page) {
+  const dataUrl = await page.evaluate(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 120;
+    canvas.height = 60;
+    const ctx = canvas.getContext('2d')!;
+    ctx.fillStyle = '#0f0';
+    ctx.fillRect(0, 0, 120, 60);
+    const body = (x: number, y: number, w: number, h: number) => {
+      ctx.fillStyle = '#d33';
+      ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = '#fdd';
+      ctx.fillRect(x + 2, y + 2, w - 4, 6); // a face
+    };
+    body(4, 4, 12, 22);
+    body(24, 6, 14, 20);
+    body(48, 2, 12, 24);
+    body(80, 4, 12, 22);
+    ctx.fillStyle = '#aaa';
+    ctx.fillRect(66, 12, 13, 2); // a spear, held out to the left of the fourth
+    body(10, 32, 16, 24);
+    return canvas.toDataURL('image/png');
+  });
+  return { name: 'battle-sheet.png', mimeType: 'image/png', buffer: Buffer.from(dataUrl.split(',')[1]!, 'base64') };
+}
+
+test('the DM picks frames from a free-form sheet to build a character\'s animations', async ({ browser }) => {
+  const { dm, ana } = await table(browser);
+  await dm.getByRole('tab', { name: 'Encounter' }).click();
+  const encounter = dm.getByRole('tabpanel', { name: 'Encounter' });
+  await encounter.getByLabel('Add').selectOption({ label: 'Goblin' });
+  await encounter.getByRole('button', { name: 'Place on map' }).click();
+  const box = (await dm.getByTestId('world-canvas').boundingBox())!;
+  await dm.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(ana.getByTestId('token').filter({ hasText: 'Goblin' })).toHaveAttribute('data-art', 'pack');
+
+  await dm.getByRole('tab', { name: 'Art' }).click();
+  await dm.getByRole('tab', { name: 'Characters' }).click();
+  const art = dm.getByRole('tabpanel', { name: 'Characters' });
+  await art.getByLabel('Character').selectOption({ label: 'Goblin (every goblin)' });
+  await art.getByLabel('Pick frames from any sheet').setInputFiles(await battleSheet(dm));
+  const picker = art.getByRole('group', { name: 'Pick frames' });
+  // Found on the solid background; the spear belongs to its sprite.
+  await expect(picker).toContainText('5 sprites found');
+  await expect(picker.getByRole('button', { name: /^Sprite \d+$/ })).toHaveCount(5);
+
+  // Idle starts with the first sprite; add another, then build a walk.
+  await expect(picker.getByRole('button', { name: /^Remove frame/ })).toHaveCount(1);
+  await picker.getByRole('button', { name: 'Sprite 2' }).click();
+  await expect(picker.getByRole('button', { name: /^Remove frame/ })).toHaveCount(2);
+  await picker.getByRole('combobox', { name: /^Animation/ }).selectOption('walk');
+  await expect(picker.getByRole('button', { name: /^Remove frame/ })).toHaveCount(0);
+  await picker.getByRole('button', { name: 'Sprite 3' }).click();
+  await picker.getByRole('button', { name: 'Sprite 4' }).click();
+  await picker.getByRole('button', { name: 'Remove frame 2' }).click();
+  await picker.getByRole('button', { name: 'Sprite 5' }).click();
+  await expect(picker).toContainText('animations: idle, walk');
+  await expect(picker.getByRole('img', { name: /preview/i })).toBeVisible();
+  await expect(picker.getByRole('img', { name: 'Round token' })).toBeVisible();
+
+  await picker.getByRole('button', { name: 'Use for Goblin' }).click();
+  await expect(picker).toHaveCount(0);
+  await expect(ana.getByTestId('token').filter({ hasText: 'Goblin' })).toHaveAttribute('data-art', 'custom');
 });

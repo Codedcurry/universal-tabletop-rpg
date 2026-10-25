@@ -105,6 +105,8 @@ function layoutProblem(layout: unknown, image: ImageAsset): string | null {
   if (!isObject(layout) || !isObject(layout.clips)) return 'the sheet layout is missing';
   const frame = layout.frameSize;
   if (typeof frame !== 'number' || !Number.isInteger(frame) || frame < 4 || frame > 256) return 'the frame size is invalid';
+  const body = layout.bodySize;
+  if (body !== undefined && (typeof body !== 'number' || !Number.isInteger(body) || body < 1 || body > frame)) return 'the body size is invalid';
   const rows = Math.floor(image.height / frame);
   const columns = Math.floor(image.width / frame);
   if (!isObject(layout.clips.idle)) return 'the sheet has no idle animation';

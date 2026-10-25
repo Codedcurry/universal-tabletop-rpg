@@ -28,6 +28,12 @@ export interface SheetRow {
 
 export interface SheetLayout {
   readonly frameSize: number;
+  /**
+   * How tall the character itself is in the frames, if the frames have room
+   * for more (weapons reaching out): the sprite is drawn so the body, not
+   * the whole frame, matches other characters' height.
+   */
+  readonly bodySize?: number;
   /** The animations the sheet has, each with a row for every direction. */
   readonly clips: Readonly<Partial<Record<Clip, Readonly<Record<SpriteDirection, SheetRow>>>>>;
 }
@@ -148,12 +154,17 @@ export function frameAt(
   return { row: row.row, column, mirror: row.mirror };
 }
 
-/** Where the face is for a round token: the top of the first facing-down idle frame. */
+/**
+ * Where the face is for a round token: the top of the first facing-down idle
+ * frame (of the body, in frames with room for more, where it stands at the
+ * bottom middle).
+ */
 export function portraitRect(layout: SheetLayout): { x: number; y: number; size: number } {
   const frame = layout.frameSize;
-  const size = Math.round(frame * 0.75);
+  const body = layout.bodySize ?? frame;
+  const size = Math.round(body * 0.75);
   const row = layout.clips.idle?.down.row ?? 0;
-  return { x: Math.round((frame - size) / 2), y: row * frame, size };
+  return { x: Math.round((frame - size) / 2), y: row * frame + frame - body, size };
 }
 
 /**
