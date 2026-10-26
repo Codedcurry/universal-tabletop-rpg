@@ -1760,3 +1760,20 @@ button.danger {
 .ai-guide code {
   user-select: all;
 }
+/* A map made from a book: its preview. */
+.map-result {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin: 8px 0;
+}
+.map-result h4 {
+  margin: 0 0 8px;
+}
+.map-preview {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  image-rendering: pixelated;
+  border-radius: 4px;
+}

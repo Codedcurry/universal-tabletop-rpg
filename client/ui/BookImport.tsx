@@ -3,7 +3,8 @@ import { createPortal } from 'react-dom';
 import { type ImportProgress, type ImportResult, importRulebook } from '@shared/ai';
 import { readBookPages } from '../ai/bookText';
 import { LocalAiGuide } from './LocalAiGuide';
-import { AI_KINDS, type AiKind, type AiSettings, listModels, loadAiSettings, makeProvider, saveAiSettings } from '../ai/providers';
+import { type AiSettings, loadAiSettings, makeProvider, saveAiSettings } from '../ai/providers';
+import { AiSetup } from './AiSetup';
 
 // Importing a rulebook the DM owns with their own AI: set up the AI (Ollama
 // or LM Studio on this computer, or another service with their key), pick
@@ -12,8 +13,6 @@ import { AI_KINDS, type AiKind, type AiSettings, listModels, loadAiSettings, mak
 
 export function BookImport({ onDone, onCancel }: { onDone: (result: ImportResult) => void; onCancel: () => void }) {
   const [settings, setSettings] = useState<AiSettings>(loadAiSettings);
-  const [models, setModels] = useState<string[]>([]);
-  const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
   const [book, setBook] = useState<{ name: string; pages: string[] } | null>(null);
   const [range, setRange] = useState({ from: 1, to: 1 });
   const [progress, setProgress] = useState<ImportProgress | null>(null);
@@ -29,18 +28,6 @@ export function BookImport({ onDone, onCancel }: { onDone: (result: ImportResult
       saveAiSettings(next);
       return next;
     });
-
-  async function check() {
-    setStatus({ ok: true, text: 'Checking…' });
-    try {
-      const found = await listModels(settings);
-      setModels(found);
-      if (!settings.model && found[0]) change({ model: found[0] });
-      setStatus(found.length > 0 ? { ok: true, text: `Connected: ${found.length} model${found.length === 1 ? '' : 's'}` } : { ok: false, text: 'Connected, but it has no models yet: download one first.' });
-    } catch (caught) {
-      setStatus({ ok: false, text: caught instanceof Error ? caught.message : String(caught) });
-    }
-  }
 
   async function chooseBook(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -99,58 +86,7 @@ export function BookImport({ onDone, onCancel }: { onDone: (result: ImportResult
           the rules editor for you to check before it&apos;s used.
         </p>
 
-        <fieldset className="panel" disabled={reading}>
-          <legend>Your AI</legend>
-          <div className="row">
-            <label className="grow">
-              <span>AI</span>
-              <select
-                value={settings.kind}
-                onChange={(event) => {
-                  const kind = event.target.value as AiKind;
-                  change({ kind, baseUrl: AI_KINDS.find((entry) => entry.id === kind)?.baseUrl ?? '', model: '' });
-                  setModels([]);
-                  setStatus(null);
-                }}
-              >
-                {AI_KINDS.map((kind) => (
-                  <option key={kind.id} value={kind.id}>
-                    {kind.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="grow">
-              <span>Address</span>
-              <input value={settings.baseUrl} onChange={(event) => change({ baseUrl: event.target.value })} />
-            </label>
-          </div>
-          <div className="row">
-            <label className="grow">
-              <span>Model</span>
-              <input list="ai-models" value={settings.model} placeholder="e.g. qwen2.5:14b" onChange={(event) => change({ model: event.target.value })} />
-              <datalist id="ai-models">
-                {models.map((model) => (
-                  <option key={model} value={model} />
-                ))}
-              </datalist>
-            </label>
-            {settings.kind === 'openai' && (
-              <label className="grow">
-                <span>API key (kept on this device only)</span>
-                <input type="password" autoComplete="off" value={settings.apiKey} onChange={(event) => change({ apiKey: event.target.value })} />
-              </label>
-            )}
-            <button type="button" onClick={() => void check()}>
-              Check connection
-            </button>
-          </div>
-          {status && (
-            <p className={status.ok ? 'muted' : 'field-error'} role="status">
-              {status.text}
-            </p>
-          )}
-        </fieldset>
+        <AiSetup settings={settings} onChange={change} disabled={reading} />
 
         <fieldset className="panel" disabled={reading}>
           <legend>The book</legend>

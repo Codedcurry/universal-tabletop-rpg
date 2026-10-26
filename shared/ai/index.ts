@@ -13,3 +13,15 @@ export {
   readJsonReply,
   sectionsOf,
 } from './bookImport';
+export {
+  type MapGuideResult,
+  type MapPlanResult,
+  MAP_PICTURE_INSTRUCTIONS,
+  MAP_TEXT_CHARS,
+  MAP_TEXT_INSTRUCTIONS,
+  PLAN_TERRAINS,
+  buildFromReply,
+  buildMapFromPlan,
+  planMap,
+  previewTiles,
+} from './mapPlan';

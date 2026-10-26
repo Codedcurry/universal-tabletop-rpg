@@ -88,9 +88,17 @@ export async function listModels(settings: AiSettings): Promise<string[]> {
 
 /** The AI as a provider for the app's features. */
 export function makeProvider(settings: AiSettings): AiProvider {
+  // Pictures go with the request for an AI that can see: Ollama takes them beside the text, the others as parts of the message.
   const messages = (request: AiRequest) => [
     { role: 'system', content: request.system },
-    { role: 'user', content: request.prompt },
+    settings.kind === 'ollama'
+      ? { role: 'user', content: request.prompt, ...(request.images?.length ? { images: request.images } : {}) }
+      : {
+          role: 'user',
+          content: request.images?.length
+            ? [{ type: 'text', text: request.prompt }, ...request.images.map((image) => ({ type: 'image_url', image_url: { url: `data:image/png;base64,${image}` } }))]
+            : request.prompt,
+        },
   ];
   const signal = (request: AiRequest) => (request.signal ? { signal: request.signal as AbortSignal } : {});
   if (settings.kind === 'ollama') {

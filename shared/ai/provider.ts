@@ -16,6 +16,8 @@ export interface AiRequest {
   readonly system: string;
   /** What to work on. */
   readonly prompt: string;
+  /** Pictures for an AI that can see (PNG images as base64, without the data: prefix). */
+  readonly images?: readonly string[];
   /** Ask for a JSON reply, where the provider supports it. */
   readonly json?: boolean;
   readonly signal?: StopSignal;

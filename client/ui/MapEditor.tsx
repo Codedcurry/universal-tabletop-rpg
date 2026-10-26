@@ -28,6 +28,7 @@ import type { HostSession } from '@shared/net';
 import type { CombatEvent } from '@shared/combat';
 import type { TilePointer } from '../render/WorldView';
 import { CombatHud } from './CombatHud';
+import { MapFromBook } from './MapFromBook';
 import { ReactionPrompt } from './ReactionPrompt';
 import { useCombatPlay } from './useCombatPlay';
 import { TERRAINS, placeholderStyle } from '../style/stylePack';
@@ -143,6 +144,7 @@ export function MapEditor({ session, combatEvents, editing, toolsSlot, onMapClic
   const [hovered, setHovered] = useState<Cell | null>(null);
   const [touchEdits, setTouchEdits] = useState(true);
   const [panel, setPanel] = useState<'none' | 'new' | 'generate' | 'examples'>('none');
+  const [fromBook, setFromBook] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   /** Bumped to re-frame the camera after a new map. */
@@ -568,6 +570,9 @@ export function MapEditor({ session, combatEvents, editing, toolsSlot, onMapClic
             <button type="button" aria-expanded={panel === 'examples'} onClick={() => setPanel(panel === 'examples' ? 'none' : 'examples')}>
               Examples
             </button>
+            <button type="button" onClick={() => setFromBook(true)}>
+              From a book (AI)
+            </button>
           </div>
         </div>
         <div className="tool-group" role="group" aria-label="File">
@@ -599,6 +604,16 @@ export function MapEditor({ session, combatEvents, editing, toolsSlot, onMapClic
       {panel === 'new' && <NewMapPanel onCreate={replaceMap} />}
       {panel === 'generate' && <GeneratePanel onCreate={replaceMap} />}
       {panel === 'examples' && <ExamplesPanel onLoad={replaceMap} />}
+      {fromBook && (
+        <MapFromBook
+          grid={map?.grid}
+          onCancel={() => setFromBook(false)}
+          onUse={(next) => {
+            setFromBook(false);
+            replaceMap(next);
+          }}
+        />
+      )}
       {noteCell && (
         <NoteEditor
           key={cellKey(noteCell)}
