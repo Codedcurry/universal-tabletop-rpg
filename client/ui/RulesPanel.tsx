@@ -2,12 +2,15 @@ import { type ChangeEvent, useState } from 'react';
 import { describeHouseRule } from '@shared/combat';
 import type { HostSession } from '@shared/net';
 import { type GameSystem, blankSystem, describePath, validateGameSystem } from '@shared/system';
+import { BookImport } from './BookImport';
 import { SystemEditor } from './SystemEditor';
 
 // The DM tools' Rules tab: the game system in play, at a glance; edit it in
 // the rules editor, start a new one, or save it to a file and load one
 // (homebrew to share, or a backup). A loaded file opens in the editor to be
-// looked over before it's used. The DM's house rules are listed, to drop.
+// looked over before it's used. A rulebook the DM owns can be read by their
+// AI into a draft, checked in the editor too. The DM's house rules are
+// listed, to drop.
 
 /** The file a system is saved as. */
 const FILE_SUFFIX = '.system.json';
@@ -26,6 +29,7 @@ export function RulesPanel({ session }: { session: HostSession }) {
   const { system, combat, houseRules } = session.snapshot();
   const [editing, setEditing] = useState<{ system: GameSystem; title: string; note?: string } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inPlay = combat ? Object.keys(combat.combatants).length : 0;
   const fitNote = inPlay > 0 ? 'Creatures already on the map keep only the stats, abilities, and conditions these rules have.' : undefined;
@@ -113,6 +117,11 @@ export function RulesPanel({ session }: { session: HostSession }) {
           ))}
         </ul>
       )}
+      <div className="row">
+        <button type="button" onClick={() => setImporting(true)}>
+          Import from a rulebook (AI)
+        </button>
+      </div>
       <p className="muted small">Rules files hold no art or maps: share your homebrew, or keep a backup. Rules from a book you own are for your own games only.</p>
       {notice && (
         <p className="notice" role="status">
@@ -123,6 +132,20 @@ export function RulesPanel({ session }: { session: HostSession }) {
         <p className="error" role="alert">
           {error}
         </p>
+      )}
+      {importing && (
+        <BookImport
+          onCancel={() => setImporting(false)}
+          onDone={(result) => {
+            setImporting(false);
+            const checks = result.notes.length > 0 ? ` ${result.notes.join(' ')}` : '';
+            setEditing({
+              system: result.system,
+              title: `Imported: ${result.system.name}`,
+              note: `Read from your book by AI: check everything before applying it.${checks}${fitNote ? ` ${fitNote}` : ''}`,
+            });
+          }}
+        />
       )}
       {editing && (
         <SystemEditor

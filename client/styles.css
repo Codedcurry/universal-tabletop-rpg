@@ -1738,3 +1738,11 @@ button.danger {
 .hud-reactions {
   margin: 6px 0 0;
 }
+/* Importing a rulebook. */
+.book-import fieldset {
+  margin: 8px 0;
+}
+.book-progress progress {
+  width: 100%;
+  height: 14px;
+}
