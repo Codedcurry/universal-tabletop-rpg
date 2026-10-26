@@ -1,5 +1,6 @@
 import { type Cell, type GridKind, cell } from '../grid';
-import { MAP_FORMAT_VERSION, MAX_HEIGHT, type MapData, type TileData, createWorldMap, objectInfo } from '../map';
+import { type CustomObject, MAP_FORMAT_VERSION, MAX_CUSTOM_OBJECTS, MAX_HEIGHT, MAX_OBJECT_PARTS, type MapData, type ObjectPart, type TileData, createWorldMap, objectInfo } from '../map';
+import { idFrom } from '../system';
 import type { AiProvider, StopSignal } from './provider';
 import { readJsonReply } from './bookImport';
 
@@ -31,13 +32,15 @@ const PLAN_FORMAT = `Reply with ONE JSON object and nothing else, one of these t
  "areas": [{"terrain": "stone", "x": 3, "y": 2, "w": 8, "h": 6}, {"shape": "circle", "terrain": "water", "x": 13, "y": 9, "r": 2}, {"terrain": "dirt", "x": 0, "y": 5, "w": 3, "h": 2, "height": 1}],
  "walls": [{"x1": 3, "y1": 2, "x2": 10, "y2": 2}, {"x1": 3, "y1": 2, "x2": 3, "y2": 7}],
  "doors": [{"x": 6, "y": 2}],
- "objects": [{"kind": "pillar", "x": 5, "y": 4}],
+ "newObjects": [{"name": "Altar with crystal skull", "blocks": true, "blocksSight": false, "parts": [{"shape": "box", "size": [0.8, 0.45, 0.5], "color": "#7d7a85"}, {"shape": "sphere", "size": [0.3, 0.32, 0.28], "at": [0, 0.45, 0], "color": "#bfe9ff", "glow": true}]}],
+ "objects": [{"kind": "pillar", "x": 5, "y": 4}, {"kind": "Altar with crystal skull", "x": 6, "y": 3}],
  "notes": "What you assumed, in a sentence or two."}
 - Tiles are 5-foot squares: a 40-foot room is 8 tiles. x is the column (0 is the left edge), y the row (0 is the top); north is up. width and height are 4 to 60: make the map big enough for EVERY place described (rooms, yards, paths), side by side as the text says, plus a margin.
 - "grid" is "square" (or "hex" if the book uses hexes).
 - terrain is one of: grass, dirt, sand, stone, water, snow, wood (wood is a wooden floor). Areas are rectangles (x, y, w, h) or circles ("shape": "circle", centre x, y, radius r); later areas paint over earlier ones. "height" is in levels of about 5 feet (0 to 6), for raised ground, platforms, and stairs (step up one level at a time).
 - walls are straight lines of solid wall tiles from (x1, y1) to (x2, y2), along a row or a column: a room's walls are its outermost tiles, its floor is inside them. Put a door (a gap) on the wall tile where the text says there is a doorway, gate, or opening, so the room can be entered.
-- objects stand on single tiles, in the place the text puts them (inside a room is between its walls; outside is beyond them); kind is one of: ${objectList}.
+- objects stand on single tiles, in the place the text puts them (inside a room is between its walls; outside is beyond them); kind is one of: ${objectList}, or the name of one of your newObjects.
+- newObjects: things the encounter needs that aren't in that list (an altar, a sarcophagus, a crystal skull, a magic circle, a throne, a cage, a book on a stand), especially anything the players can take, use, or fight over. Build each from 1 to 8 simple parts: shape is box, cylinder, cone, or sphere; size is [width, height, depth] in tiles (1 = a whole tile; a person is about 0.4 wide and 1 tall); "at" is where the part's bottom middle sits, [across, up, along] from the tile's centre (stack parts by raising "at"); color is #rrggbb; "glow": true for magic, flames, and crystals. "blocks": whether it fills the tile so no one can stand there; "blocksSight": whether it's tall enough to hide what's behind it.
 - Lay out what the text says (sizes, what's where), and fill in plain, sensible details only where it's silent. Keep every open area reachable.
 
 2. When the pages don't describe or show a place clearly enough to map:
@@ -107,6 +110,14 @@ export function buildMapFromPlan(plan: Data, gridKind?: GridKind): MapPlanResult
   for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) tiles.set(`${x},${y}`, { x, y, terrain: ground, height: 0, blocked: false });
   const tileAt = (x: number, y: number) => tiles.get(`${x},${y}`);
 
+  // Objects made for this map: kept small and valid, named, given ids.
+  const made = madeObjects(plan.newObjects);
+  if (made.length > 0) notes.push(`Made for this map: ${made.map((object) => object.name).join(', ')}.`);
+  const kindOf = (kind: string): CustomObject | ReturnType<typeof objectInfo> => {
+    const named = kind.trim().toLowerCase();
+    return objectInfo(kind) ?? made.find((object) => object.id === kind || object.name.toLowerCase() === named);
+  };
+
   const unknown = new Set<string>();
   for (const area of list(plan.areas)) {
     const terrain = area.terrain === undefined ? undefined : terrainOf(area.terrain);
@@ -149,13 +160,13 @@ export function buildMapFromPlan(plan: Data, gridKind?: GridKind): MapPlanResult
   for (const object of list(plan.objects)) {
     const tile = tileAt(whole(object.x) ?? -1, whole(object.y) ?? -1);
     const kind = typeof object.kind === 'string' ? object.kind : '';
-    const info = objectInfo(kind);
+    const info = kindOf(kind);
     if (!info) {
       if (kind) unknown.add(kind);
       continue;
     }
     if (!tile || tile.blocked) continue;
-    tile.object = kind;
+    tile.object = info.id;
     if (info.blocks) tile.blocked = true;
   }
   // Deep water is solid, as on the example maps.
@@ -173,9 +184,52 @@ export function buildMapFromPlan(plan: Data, gridKind?: GridKind): MapPlanResult
       ...(tile.object ? { object: tile.object } : {}),
     };
   });
-  const map = createWorldMap({ formatVersion: MAP_FORMAT_VERSION, grid, tiles: data, walls: [] }).toData();
+  // Only the made objects that were placed go with the map.
+  const placed = made.filter((object) => data.some((tile) => tile.object === object.id));
+  const map = createWorldMap({ formatVersion: MAP_FORMAT_VERSION, grid, tiles: data, walls: [], ...(placed.length > 0 ? { objects: placed } : {}) }).toData();
   const name = typeof plan.name === 'string' && plan.name.trim() ? plan.name.trim() : 'Map from the book';
   return { kind: 'map', name, map, notes };
+}
+
+const clampNumber = (value: unknown, min: number, max: number, fallback: number) => {
+  const number = typeof value === 'string' ? Number(value) : value;
+  return typeof number === 'number' && Number.isFinite(number) ? Math.min(max, Math.max(min, number)) : fallback;
+};
+const SHAPES = new Set(['box', 'cylinder', 'cone', 'sphere']);
+
+/** The objects a plan makes, tidied into valid ones: ids from names, sizes and places kept in range, colours checked. */
+function madeObjects(value: unknown): CustomObject[] {
+  const taken = new Set<string>();
+  return list(value)
+    .slice(0, MAX_CUSTOM_OBJECTS)
+    .flatMap((raw): CustomObject[] => {
+      const name = typeof raw.name === 'string' ? raw.name.trim().slice(0, 60) : '';
+      if (!name) return [];
+      const parts: ObjectPart[] = list(raw.parts)
+        .slice(0, MAX_OBJECT_PARTS)
+        .flatMap((part): ObjectPart[] => {
+          const shape = SHAPES.has(part.shape as string) ? (part.shape as ObjectPart['shape']) : 'box';
+          const size = Array.isArray(part.size) ? part.size : [];
+          const at = Array.isArray(part.at) ? part.at : [];
+          const color = typeof part.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(part.color) ? part.color : '#8a8790';
+          return [
+            {
+              shape,
+              size: [clampNumber(size[0], 0.02, 3, 0.5), clampNumber(size[1], 0.02, 3, 0.5), clampNumber(size[2], 0.02, 3, 0.5)],
+              ...(at.length === 3 ? { at: [clampNumber(at[0], -2, 4, 0), clampNumber(at[1], -2, 4, 0), clampNumber(at[2], -2, 4, 0)] as const } : {}),
+              color,
+              ...(part.glow === true ? { glow: true } : {}),
+              ...(shape !== 'box' ? { sides: 8 } : {}),
+            },
+          ];
+        });
+      if (parts.length === 0) return [];
+      // Not the id of a built-in object, or of another made one.
+      let id = idFrom(name, taken);
+      while (objectInfo(id)) id = idFrom(`${id}_made`, taken);
+      taken.add(id);
+      return [{ id, name, blocks: raw.blocks === true, blocksSight: raw.blocksSight === true, parts }];
+    });
 }
 
 /**

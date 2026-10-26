@@ -5,7 +5,7 @@ import { lowerQuality } from '@shared/graphics';
 import { type CustomArt, EMPTY_ART } from '@shared/style/art';
 import type { GameSystem } from '@shared/system';
 import type { Cell } from '@shared/grid';
-import { type MapData, type WorldMap, objectInfo } from '@shared/map';
+import type { MapData, WorldMap } from '@shared/map';
 import { type HighlightKind, type TilePointer, WorldView } from '../render/WorldView';
 import { placeholderStyle } from '../style/stylePack';
 import { combatSounds } from '@shared/audio';
@@ -275,6 +275,6 @@ export function tileDescription(world: WorldMap, cell: Cell | null, extra: { fog
   if (!tile) return `(${cell.q}, ${cell.r}) is outside the map`;
   if (extra.fog && !extra.fog.explored.has(`${cell.q},${cell.r}`)) return `Tile (${cell.q}, ${cell.r}) · unexplored`;
   const note = extra.note ? ` · Note: ${extra.note}` : '';
-  const object = tile.object ? ` · ${objectInfo(tile.object)?.name ?? tile.object}` : '';
+  const object = tile.object ? ` · ${world.object(tile.object)?.name ?? tile.object}` : '';
   return `Tile (${cell.q}, ${cell.r}) · height ${tile.height} · ${tile.terrain}${object}${tile.blocked ? ' · solid' : ''}${note}`;
 }

@@ -1,5 +1,5 @@
 import { type Cell, cellKey } from '../grid';
-import { type Tile, type WorldMap, objectInfo, sharesEdge } from '../map';
+import { type Tile, type WorldMap, sharesEdge } from '../map';
 
 /**
  * Line of sight on the map: walls, tall objects (trees, boulders, pillars),
@@ -14,8 +14,8 @@ export const EYE_HEIGHT = 1.5;
 export const TARGET_HEIGHT = 1;
 
 /** Whether a tile in between hides what is behind it (heights aside). */
-function hidesView(tile: Tile): boolean {
-  if (tile.object) return objectInfo(tile.object)?.blocksSight ?? true;
+function hidesView(map: WorldMap, tile: Tile): boolean {
+  if (tile.object) return map.object(tile.object)?.blocksSight ?? true;
   // Solid tiles with nothing on them are rock or crags, except deep water, which is flat.
   return tile.blocked && tile.terrain !== 'water';
 }
@@ -28,7 +28,7 @@ function stepIsOpen(map: WorldMap, from: Cell, to: Cell): boolean {
   const viaRow = { q: from.q, r: to.r };
   const around = (via: Cell) => {
     const tile = map.tile(via);
-    return !map.hasWall(from, via) && !map.hasWall(via, to) && !(tile && hidesView(tile));
+    return !map.hasWall(from, via) && !map.hasWall(via, to) && !(tile && hidesView(map, tile));
   };
   return around(viaColumn) || around(viaRow);
 }
@@ -45,7 +45,7 @@ export function hasLineOfSight(map: WorldMap, from: Cell, to: Cell): boolean {
     if (i === steps) break; // the target's own tile never hides it
     const tile = map.tile(here);
     if (!tile) continue; // a gap in the world hides nothing
-    if (hidesView(tile)) return false;
+    if (hidesView(map, tile)) return false;
     // The line from the eye to the target, at this point along the way.
     const sight = eye + ((aim - eye) * i) / steps;
     if (tile.height > sight) return false;

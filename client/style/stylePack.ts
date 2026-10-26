@@ -19,22 +19,9 @@ export interface SolidLook {
 }
 
 /** One shape of an object's model. Sizes in tiles (1 = a tile across). */
-export interface ObjectPart {
-  readonly shape: 'box' | 'cylinder' | 'cone' | 'sphere';
-  /** Width (x), height (y), depth (z); for round shapes, their diameters. */
-  readonly size: readonly [number, number, number];
-  /** Where the bottom middle of the part sits: across, up from the tile's top, and along. */
-  readonly at?: readonly [number, number, number];
-  /** Lean (radians, around the depth axis), e.g. a branch. */
-  readonly tilt?: number;
-  /** Turn (radians, around the vertical), e.g. crossed logs. */
-  readonly turn?: number;
-  readonly color: string;
-  /** Fewer sides look more low-poly. */
-  readonly sides?: number;
-  /** Gets a soft glow halo (a flame, a crystal). */
-  readonly glow?: boolean;
-}
+/** One simple shape of an object's model (shared with maps' own objects). */
+export type { ObjectPart } from '@shared/map';
+import type { ObjectPart } from '@shared/map';
 
 /** How an object on a tile looks. */
 export interface ObjectModel {

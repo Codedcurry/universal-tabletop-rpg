@@ -1,4 +1,5 @@
 import { type Cell, type Grid, type GridKind, cell, cellKey, createGrid } from '../grid';
+import { type CustomObject, MAX_CUSTOM_OBJECTS, type MapObjectInfo, customObjectProblem, objectInfoIn } from './objects';
 
 /**
  * The world map: which cells exist (the world bounds), how high each one is,
@@ -39,6 +40,8 @@ export interface MapData {
   readonly grid: GridKind;
   readonly tiles: readonly TileData[];
   readonly walls: readonly WallData[];
+  /** Objects made for this map (see objects.ts), placed on its tiles by id. */
+  readonly objects?: readonly CustomObject[];
 }
 
 export interface Tile {
@@ -55,6 +58,8 @@ export interface WorldMap {
   inBounds(cell: Cell): boolean;
   hasWall(a: Cell, b: Cell): boolean;
   cells(): Cell[];
+  /** An object's facts: built-in, or one of the map's own. */
+  object(id: string): MapObjectInfo | undefined;
   /** Canonical data: tiles by row then column, walls in a fixed order, so equal maps give equal data. */
   toData(): MapData;
 }
@@ -134,6 +139,16 @@ export function createWorldMap(data: MapData): WorldMap {
     tiles.set(key, { cell: cell(tile.q, tile.r), height: tile.height, blocked: tile.blocked === true, terrain, object });
   }
 
+  const objects = data.objects ?? [];
+  if (objects.length > MAX_CUSTOM_OBJECTS) throw new MapError(`A map can have at most ${MAX_CUSTOM_OBJECTS} objects of its own`);
+  const objectIds = new Set<string>();
+  for (const object of objects) {
+    const problem = customObjectProblem(object);
+    if (problem) throw new MapError(`The map's object "${String(object?.name ?? object?.id)}" ${problem}`);
+    if (objectIds.has(object.id)) throw new MapError(`The map has two objects called "${object.id}"`);
+    objectIds.add(object.id);
+  }
+
   const walls = new Map<string, [Cell, Cell]>();
   for (const [a, b] of data.walls) {
     if (!sharesEdge(grid, a, b)) {
@@ -151,6 +166,7 @@ export function createWorldMap(data: MapData): WorldMap {
     inBounds: (c) => tiles.has(cellKey(c)),
     hasWall: (a, b) => walls.has(wallKey(a, b)),
     cells: () => [...tiles.values()].map((tile) => tile.cell),
+    object: (id) => objectInfoIn(objects, id),
     toData: () => ({
       formatVersion: MAP_FORMAT_VERSION,
       grid: grid.kind,
@@ -165,6 +181,7 @@ export function createWorldMap(data: MapData): WorldMap {
           ...(tile.object ? { object: tile.object } : {}),
         })),
       walls: [...walls.values()].sort(([a1, a2], [b1, b2]) => compareCells(a1, b1) || compareCells(a2, b2)),
+      ...(objects.length > 0 ? { objects: [...objects] } : {}),
     }),
   };
 }
@@ -181,7 +198,8 @@ const isCell = (value: unknown): value is Cell => isObject(value) && typeof valu
 /** Checks an imported map file and returns it in canonical form, or a reason it can't be used. */
 export function validateMapData(data: unknown): MapValidation {
   if (!isObject(data)) return { ok: false, error: 'This is not a map file' };
-  const { formatVersion, grid, tiles, walls } = data;
+  const { formatVersion, grid, tiles, walls, objects } = data;
+  if (objects !== undefined && !Array.isArray(objects)) return { ok: false, error: "The map's objects are malformed" };
   if (!Array.isArray(tiles)) return { ok: false, error: 'The map has no tile list' };
   if (!Array.isArray(walls)) return { ok: false, error: 'The map has no wall list' };
   for (const [index, tile] of tiles.entries()) {
@@ -209,6 +227,7 @@ export function validateMapData(data: unknown): MapValidation {
       grid: grid as GridKind,
       tiles: tiles as TileData[],
       walls: walls as WallData[],
+      ...(Array.isArray(objects) ? { objects: objects as CustomObject[] } : {}),
     });
     return { ok: true, map: map.toData() };
   } catch (error) {
@@ -217,4 +236,14 @@ export function validateMapData(data: unknown): MapValidation {
   }
 }
 export { type Vec3, rayPick } from './raypick';
-export { MAP_OBJECTS, type MapObjectInfo, objectInfo } from './objects';
+export {
+  type CustomObject,
+  MAP_OBJECTS,
+  MAX_CUSTOM_OBJECTS,
+  MAX_OBJECT_PARTS,
+  type MapObjectInfo,
+  type ObjectPart,
+  customObjectProblem,
+  objectInfo,
+  objectInfoIn,
+} from './objects';

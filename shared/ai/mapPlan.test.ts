@@ -114,3 +114,47 @@ describe('the grid', () => {
     expect(buildMapFromPlan({ grid: 'hex', width: 6, height: 6 }).map.grid).toBe('hex');
   });
 });
+
+describe('objects the plan makes', () => {
+  const plan = {
+    width: 6,
+    height: 4,
+    newObjects: [
+      {
+        name: 'Altar with crystal skull',
+        blocks: true,
+        blocksSight: false,
+        parts: [
+          { shape: 'box', size: [0.8, 0.45, 0.5], color: '#7d7a85' },
+          { shape: 'sphere', size: [0.3, 0.32, 0.28], at: [0, 0.45, 0], color: '#bfe9ff', glow: true },
+        ],
+      },
+      { name: 'Tree', parts: [{ shape: 'pyramid', size: [9, 1, 1], color: 'green' }] },
+      { name: 'Unused cage', parts: [{ shape: 'box', size: [1, 1, 1], color: '#333333' }] },
+    ],
+    objects: [
+      { kind: 'Altar with crystal skull', x: 2, y: 1 },
+      { kind: 'tree', x: 4, y: 2 },
+      { kind: 'TREE', x: 0, y: 0 },
+    ],
+  };
+
+  it('makes the objects the encounter needs, places them by name, and keeps them with the map', () => {
+    const result = buildMapFromPlan(plan);
+    const altar = result.map.objects?.find((object) => object.name === 'Altar with crystal skull');
+    expect(altar).toMatchObject({ id: 'altar_with_crystal_skull', blocks: true, blocksSight: false });
+    expect(altar?.parts[1]).toMatchObject({ shape: 'sphere', glow: true, color: '#bfe9ff' });
+    expect(previewTiles(result.map).find((tile) => tile.x === 2 && tile.y === 1)).toMatchObject({ object: 'altar_with_crystal_skull', blocked: true });
+    // The built-in tree is used for "tree"; a made one called Tree gets its own id.
+    expect(previewTiles(result.map).find((tile) => tile.x === 4 && tile.y === 2)?.object).toBe('tree');
+    expect(result.notes).toContain('Made for this map: Altar with crystal skull, Tree, Unused cage.');
+  });
+
+  it('tidies what it can\'t use as given, and leaves out objects never placed', () => {
+    const result = buildMapFromPlan(plan);
+    const tree = result.map.objects?.find((object) => object.name === 'Tree');
+    expect(tree?.id).toBe('tree_made');
+    expect(tree?.parts[0]).toMatchObject({ shape: 'box', size: [3, 1, 1], color: '#8a8790' });
+    expect(result.map.objects?.map((object) => object.name)).not.toContain('Unused cage');
+  });
+});

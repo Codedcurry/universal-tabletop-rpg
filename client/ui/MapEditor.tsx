@@ -523,6 +523,16 @@ export function MapEditor({ session, combatEvents, editing, toolsSlot, onMapClic
                       ))}
                     </optgroup>
                   ))}
+                  {/* Objects made for this map, by the AI for an encounter. */}
+                  {(map?.objects ?? []).length > 0 && (
+                    <optgroup label="This map's own">
+                      {(map?.objects ?? []).map((entry) => (
+                        <option key={entry.id} value={entry.id}>
+                          {entry.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
                 </select>
               </label>
             )}

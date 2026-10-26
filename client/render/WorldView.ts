@@ -433,7 +433,8 @@ export class WorldView {
     const objects = buildObjectMeshes(
       this.scene,
       placements,
-      this.style.objects,
+      // The pack's models, and the map's own objects (made for an encounter).
+      { ...this.style.objects, ...Object.fromEntries((map.objects ?? []).map((object) => [object.id, { parts: object.parts }])) },
       this.style.unknownObject,
       this.style.cellSize,
       (color, glow) => {

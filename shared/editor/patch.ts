@@ -8,7 +8,8 @@ import {
   type TileData,
   type WallData,
   createWorldMap,
-  objectInfo,
+  type CustomObject,
+  objectInfoIn,
   rectangleTiles,
 } from '../map';
 
@@ -22,6 +23,8 @@ export interface MapPatch {
   readonly removeTiles: readonly Cell[];
   readonly addWalls: readonly WallData[];
   readonly removeWalls: readonly WallData[];
+  /** The map's own objects, all of them, when they change. */
+  readonly objects?: readonly CustomObject[];
 }
 
 export const EMPTY_PATCH: MapPatch = { tiles: [], removeTiles: [], addWalls: [], removeWalls: [] };
@@ -31,7 +34,8 @@ export function isEmptyPatch(patch: MapPatch): boolean {
     patch.tiles.length === 0 &&
     patch.removeTiles.length === 0 &&
     patch.addWalls.length === 0 &&
-    patch.removeWalls.length === 0
+    patch.removeWalls.length === 0 &&
+    patch.objects === undefined
   );
 }
 
@@ -111,6 +115,7 @@ export function diffMaps(before: MapData, after: MapData): MapPatch {
     removeTiles: before.tiles.filter((tile) => !afterKeys.has(cellKey(tile))).map(({ q, r }) => ({ q, r })),
     addWalls: after.walls.filter((wall) => !beforeWalls.has(wallKey(wall))),
     removeWalls: before.walls.filter((wall) => !afterWalls.has(wallKey(wall))),
+    ...(JSON.stringify(before.objects ?? []) === JSON.stringify(after.objects ?? []) ? {} : { objects: after.objects ?? [] }),
   };
 }
 
@@ -124,7 +129,9 @@ export function applyPatch(map: MapData, patch: MapPatch): MapData {
   for (const wall of patch.removeWalls) walls.delete(wallKey(wall));
   for (const wall of patch.addWalls) walls.set(wallKey(wall), wall);
 
-  return createWorldMap({ ...map, tiles: [...tiles.values()], walls: [...walls.values()] }).toData();
+  const objects = patch.objects ?? map.objects ?? [];
+  const { objects: _objects, ...rest } = map;
+  return createWorldMap({ ...rest, tiles: [...tiles.values()], walls: [...walls.values()], ...(objects.length > 0 ? { objects } : {}) }).toData();
 }
 
 function unique(cells: readonly Cell[]): Cell[] {
@@ -173,7 +180,7 @@ export function editPatch(map: MapData, edit: MapEdit): MapPatch {
           .map(({ q, r }) => ({ q, r })),
       };
     case 'setObject': {
-      const blocks = edit.object !== null && objectInfo(edit.object)?.blocks === true;
+      const blocks = edit.object !== null && objectInfoIn(map.objects, edit.object)?.blocks === true;
       return modify(edit.cells, (tile) =>
         // Removing objects passes over tiles that have none (a solid tile stays solid).
         edit.object === null && !tile.object ? tile : { ...tile, object: edit.object ?? '', blocked: blocks },
