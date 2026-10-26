@@ -117,6 +117,11 @@ export class ClientSession {
     return this.request((requestId) => ({ type: 'combatAction', requestId, action }));
   }
 
+  /** Makes (or remakes) this player's character, with the game's rules; the DM checks it. */
+  setCharacter(character: CreatureSheet): string | null {
+    return this.request((requestId) => ({ type: 'setCharacter', requestId, character }));
+  }
+
   /** Asks the DM to allow an action the rules refuse (the DM allows it once, makes it a house rule, or says no). */
   askRuling(action: CombatAction): string | null {
     return this.request((requestId) => ({ type: 'askRuling', requestId, action }));

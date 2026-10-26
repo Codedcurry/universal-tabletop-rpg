@@ -986,3 +986,27 @@ describe('rulings and house rules', () => {
     expect(ana.session.state?.houseRules).toEqual([{ kind: 'movement', extra: 1 }]);
   });
 });
+
+describe('making a character with the game\'s rules', () => {
+  it('a player makes their character; it is checked, theirs, and shown to everyone', () => {
+    const network = createTestNetwork({ dmTitle: 'Keeper' });
+    const ana = network.join('Ana');
+    network.host.setSystem(skirmish);
+    ana.session.setCharacter({ id: 'mine', name: 'Ana the Bold', stats: { str: 15, dex: 13, luck: 4 }, xp: 0, abilities: ['strike', 'fireball'] });
+    network.flush();
+    const mine = ana.session.state?.players.find((player) => player.name === 'Ana')?.character;
+    expect(mine).toMatchObject({ id: 'pc-p1', name: 'Ana the Bold', stats: { str: 15, dex: 13 }, abilities: ['strike'] });
+    expect(mine?.stats).not.toHaveProperty('luck');
+    expect(texts(ana.session.state?.log ?? [])).toContain('Ana makes their character: Ana the Bold');
+  });
+
+  it('a character already in the fight takes the new sheet, keeping its place', () => {
+    const network = createTestNetwork({ dmTitle: 'Keeper' });
+    const ana = network.join('Ana', { character: anaSheet });
+    const id = setupCombat(network, ana);
+    ana.session.setCharacter({ ...anaSheet, name: 'Ana the Brave' });
+    network.flush();
+    expect(ana.session.state?.combat?.combatants[id]?.sheet.name).toBe('Ana the Brave');
+    expect(texts(ana.session.state?.log ?? [])).toContain('Ana remakes their character: Ana the Brave');
+  });
+});

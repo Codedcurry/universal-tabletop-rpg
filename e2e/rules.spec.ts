@@ -251,3 +251,27 @@ test('reactions: the DM gives Ana a Shield; a goblin\'s sure hit waits for her, 
   await expect(ana.getByTestId('log').getByText(/Goblin 1 attacks Ana: \d+ vs defense \d+, miss/)).toBeVisible();
   await expect(ana.getByTestId('token').filter({ hasText: 'Ana' }).getByRole('meter')).toHaveAccessibleName('Ana: 9 of 9 HP');
 });
+
+test('a player makes their character with the game\'s own rules, and the DM sees it', async ({ browser }) => {
+  const { dm, ana } = await table(browser);
+  // New rules: one stat (Might), one ability (Attack).
+  await dm.getByRole('tab', { name: 'Rules' }).click();
+  await dm.getByRole('tabpanel', { name: 'Rules' }).getByRole('button', { name: 'New system' }).click();
+  const editor = dm.getByRole('dialog', { name: 'Rules editor' });
+  await editor.getByLabel(/^System name/).fill('Moonfall');
+  await editor.getByRole('button', { name: 'Apply to game' }).click();
+
+  await ana.getByRole('button', { name: 'Change my character' }).click();
+  const builder = ana.getByRole('form', { name: 'Your character' });
+  await expect(builder).toContainText('With the rules of Moonfall');
+  await builder.getByLabel('Name').fill('Ana Starfall');
+  await builder.getByLabel('Might').fill('14');
+  // Max HP is 10 + level x 2 under these rules; the Might modifier is +2.
+  await expect(builder.getByTestId('character-numbers')).toContainText('Level 1 · 12 HP');
+  await expect(builder.getByTestId('character-numbers')).toContainText('Might modifier 2');
+  await builder.getByLabel(/Attack/).check();
+  await builder.getByRole('button', { name: 'Save my character' }).click();
+
+  await expect(ana.getByRole('region', { name: 'Your character section' })).toContainText('Ana Starfall · Attack');
+  await expect(dm.getByTestId('log').getByText('Ana remakes their character: Ana Starfall')).toBeVisible();
+});

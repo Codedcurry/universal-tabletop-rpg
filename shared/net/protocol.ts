@@ -12,7 +12,7 @@ import type { CreatureSheet, GameSystem } from '../system';
  * and broadcasts results.
  */
 
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 
 export const MAX_NAME_LENGTH = 40;
 export const MAX_CHAT_LENGTH = 1000;
@@ -115,6 +115,8 @@ export type ClientMessage =
   | { readonly type: 'syncRequest' }
   | { readonly type: 'pong' }
   | { readonly type: 'combatAction'; readonly requestId: string; readonly action: CombatAction }
+  /** A player making (or remaking) their character, with the game's rules. */
+  | { readonly type: 'setCharacter'; readonly requestId: string; readonly character: CreatureSheet }
   /** A player asking the DM to allow an action the rules refuse. */
   | { readonly type: 'askRuling'; readonly requestId: string; readonly action: CombatAction }
   | { readonly type: 'chat'; readonly requestId: string; readonly text: string; readonly to: ParticipantId | null }
@@ -220,6 +222,10 @@ export function parseClientMessage(data: unknown): ClientMessage | null {
     case 'combatAction': {
       const action = parseAction(data.action);
       return action ? { type: 'combatAction', requestId, action } : null;
+    }
+    case 'setCharacter': {
+      const character = parseSheet(data.character);
+      return character ? { type: 'setCharacter', requestId, character } : null;
     }
     case 'askRuling': {
       const action = parseAction(data.action);

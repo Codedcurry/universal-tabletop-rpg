@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { CombatEvent } from '@shared/combat';
 import type { Cell } from '@shared/grid';
 import type { JoinedGame } from '../net/transport';
+import { CharacterBuilder } from './CharacterBuilder';
 import { CombatPanel } from './CombatPanel';
 import { DiceBox } from './DiceBox';
 import { LogPanel } from './LogPanel';
@@ -38,6 +39,8 @@ export function PlayerView({ game, code, error, focus, combatEvents }: Props) {
   // This player's own character, if they brought one.
   const mine = state?.players.find((player) => player.id === session.playerId)?.character?.id;
   const [localError, setLocalError] = useState<string | null>(null);
+  const me = state?.players.find((player) => player.id === session.playerId);
+  const [building, setBuilding] = useState(false);
 
   function roll(notation: string, faces: number[] | null) {
     try {
@@ -116,6 +119,40 @@ export function PlayerView({ game, code, error, focus, combatEvents }: Props) {
               error={localError ?? error}
             />
           </section>
+          {state.system && (
+            <section className="card" aria-label="Your character section">
+              <h2>Your character</h2>
+              {building ? (
+                <CharacterBuilder
+                  system={state.system}
+                  current={me?.character ?? null}
+                  defaultName={me?.name ?? ''}
+                  onSave={(character) => {
+                    session.setCharacter(character);
+                    setBuilding(false);
+                  }}
+                  onCancel={() => setBuilding(false)}
+                />
+              ) : (
+                <>
+                  {me?.character ? (
+                    <p>
+                      <strong>{me.character.name}</strong>
+                      <span className="muted">
+                        {' '}
+                        · {me.character.abilities.map((id) => state.system?.abilities.find((ability) => ability.id === id)?.name ?? id).join(', ')}
+                      </span>
+                    </p>
+                  ) : (
+                    <p className="muted">No character yet.</p>
+                  )}
+                  <button type="button" className={me?.character ? '' : 'primary'} onClick={() => setBuilding(true)}>
+                    {me?.character ? 'Change my character' : 'Make my character'}
+                  </button>
+                </>
+              )}
+            </section>
+          )}
         </div>
       )}
     </div>

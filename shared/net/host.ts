@@ -266,6 +266,9 @@ export class HostSession {
       case 'askRuling':
         this.playerAsksRuling(connection, player, message.requestId, message.action);
         return;
+      case 'setCharacter':
+        this.playerSetsCharacter(connection, player, message.requestId, message.character);
+        return;
       case 'chat':
         this.playerChat(connection, player, message.requestId, message.text, message.to);
         return;
@@ -695,6 +698,28 @@ export class HostSession {
     const result = applyAction(this.combatContext(), combat, action, this.options.random);
     if (!result.ok) return this.fail(connection, requestId, result.reason);
     this.setCombat(result.state, result.events);
+  }
+
+  /**
+   * A player's new character: checked against the rules (fitted, as on
+   * joining), then theirs. One already in a fight keeps its place, HP, and
+   * conditions, and takes the new sheet.
+   */
+  private playerSetsCharacter(connection: Connection, player: PlayerRecord, requestId: string, sheet: CreatureSheet): void {
+    const character = this.fitCharacter({ ...sheet, id: characterIdFor(player.id) });
+    const problem = this.characterProblem(character);
+    if (problem) return this.fail(connection, requestId, `Your character doesn't fit this game: ${problem}`);
+    const remade = player.character !== null;
+    player.character = character;
+    this.publishPlayers();
+    const combat = this.state.combat;
+    const inPlay = combat?.combatants[character.id];
+    if (combat && inPlay) {
+      const maxHp = computeCreature(this.combatContext().system, character).maxHp;
+      const combatants = { ...combat.combatants, [character.id]: { ...inPlay, sheet: character, hp: Math.min(inPlay.hp, maxHp) } };
+      this.publish({ kind: 'combat', combat: { ...combat, combatants }, events: [] });
+    }
+    this.log({ kind: 'system', text: `${player.name} ${remade ? 'remakes their character' : 'makes their character'}: ${character.name}` });
   }
 
   private playerAsksRuling(connection: Connection, player: PlayerRecord, requestId: string, action: CombatAction): void {

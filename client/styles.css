@@ -1868,3 +1868,19 @@ button.danger {
   margin-right: 2px;
   border-radius: 4px;
 }
+/* A player making their character. */
+.builder-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 8px;
+}
+.builder-abilities label.check {
+  align-items: flex-start;
+  margin: 6px 0;
+}
+.builder-description {
+  display: block;
+}
+.builder-numbers {
+  font-weight: 600;
+}

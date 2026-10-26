@@ -3,6 +3,7 @@ import type { CombatEvent } from '@shared/combat';
 import type { Cell } from '@shared/grid';
 import { type SavedGame, normalizeRoomCode } from '@shared/net';
 import { demoCharacter } from './demo';
+import { savedCharacter } from './ui/CharacterBuilder';
 import { hostedRoom, joinedRoom, playerToken, rememberHostedRoom, rememberJoinedRoom, saveName, savedName } from './net/identity';
 import { deleteSavedGame, listSavedGames, putSavedGame } from './storage/savedGames';
 import { type HostedGame, type JoinedGame, hostGame, joinGame } from './net/transport';
@@ -81,7 +82,8 @@ export function App() {
       code,
       token: playerToken(),
       name,
-      character: demoCharacter(name),
+      // The character this device last made, else a sample one (the DM fits it to the rules).
+      character: savedCharacter() ?? demoCharacter(name),
       onChange: rerender,
       onRequestFailed: (reason) => setError(reason),
       onFocus: (cell) => setFocus((previous) => ({ cell, key: (previous?.key ?? 0) + 1 })),
