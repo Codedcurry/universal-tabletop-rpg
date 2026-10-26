@@ -14,7 +14,8 @@ export type ValidationResult =
 const ID_PATTERN = /^[a-z][a-z0-9_]*$/;
 const TARGETS = new Set(['enemy', 'ally', 'self']);
 const ANIMATIONS = new Set(['melee', 'ranged', 'spell', 'item']);
-const EFFECT_TYPES = new Set(['damage', 'heal', 'applyCondition']);
+const EFFECT_TYPES = new Set(['damage', 'heal', 'applyCondition', 'restore']);
+const REFILLS = new Set(['turn', 'fight']);
 
 type Data = Record<string, unknown>;
 
@@ -208,6 +209,30 @@ export function validateGameSystem(data: unknown): ValidationResult {
     }
   }
 
+  // --- resources and criticals (optional) -------------------------------------
+
+  const resourceIds = new Set<string>();
+  if (data.resources !== undefined) {
+    eachObject(data, 'resources', '', (resource, path) => {
+      requireId(resource, path, resourceIds);
+      requireString(resource, 'name', path);
+      requireFormula(resource, 'max', path, variables, { dice: false });
+      if (!REFILLS.has(resource.refill as string)) fail(child(path, 'refill'), 'Must be turn or fight');
+    });
+  }
+
+  if (data.critical !== undefined) {
+    const critical = requireObject(data, 'critical', '');
+    if (critical) {
+      for (const key of ['hit', 'miss'] as const) {
+        if (critical[key] !== undefined) requireInteger(critical, key, 'critical', 1);
+      }
+      if (isInteger(critical.hit) && isInteger(critical.miss) && critical.miss >= critical.hit) {
+        fail('critical.miss', 'Must be lower than the critical hit roll');
+      }
+    }
+  }
+
   // --- conditions -----------------------------------------------------------
 
   const conditionIds = new Set<string>();
@@ -248,10 +273,21 @@ export function validateGameSystem(data: unknown): ValidationResult {
           fail(child(effectPath, 'condition'), `Unknown condition "${String(effect.condition)}"`);
         }
         requireInteger(effect, 'rounds', effectPath, 1);
+      } else if (effect.type === 'restore') {
+        if (!resourceIds.has(effect.resource as string)) fail(child(effectPath, 'resource'), `Unknown resource "${String(effect.resource)}"`);
+        requireFormula(effect, 'amount', effectPath, variables, { dice: true });
       } else {
         requireFormula(effect, 'amount', effectPath, variables, { dice: true });
       }
     });
+    if (ability.cost !== undefined) {
+      const cost = requireObject(ability, 'cost', path);
+      for (const [resource, amount] of Object.entries(cost ?? {})) {
+        const costPath = child(child(path, 'cost'), resource);
+        if (!resourceIds.has(resource)) fail(costPath, `Unknown resource "${resource}"`);
+        else if (!isInteger(amount) || amount < 1) fail(costPath, 'Must be a whole number of at least 1');
+      }
+    }
   });
 
   // --- monsters -------------------------------------------------------------

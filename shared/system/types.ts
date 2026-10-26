@@ -31,6 +31,31 @@ export interface GameSystem {
   readonly conditions: readonly ConditionDef[];
   readonly abilities: readonly AbilityDef[];
   readonly monsters: readonly MonsterDef[];
+  /** Points abilities spend (mana, spell slots, ki). Optional: systems without them leave it out. */
+  readonly resources?: readonly ResourceDef[];
+  /** Critical hits and misses on attack rolls. Optional: no criticals without it. */
+  readonly critical?: CriticalDef;
+}
+
+/** A pool of points a creature spends on abilities, refilled each turn or each fight. */
+export interface ResourceDef {
+  readonly id: string;
+  readonly name: string;
+  /** How many a creature has when full. No dice. */
+  readonly max: string;
+  /** When it fills up again: at the start of each of the creature's turns, or only at the start of a fight. */
+  readonly refill: 'turn' | 'fight';
+}
+
+/**
+ * Criticals, by the natural roll: the kept die of the attack roll's first
+ * dice term (the d20 of "1d20 + @str_mod").
+ */
+export interface CriticalDef {
+  /** A natural roll of at least this always hits, and the damage dice are rolled twice. */
+  readonly hit?: number;
+  /** A natural roll of at most this always misses. */
+  readonly miss?: number;
 }
 
 export interface StatDef {
@@ -98,12 +123,16 @@ export interface AbilityDef {
   readonly attack?: { readonly roll: string };
   readonly effects: readonly EffectDef[];
   readonly animation: AbilityAnimation;
+  /** Resource points it spends, by resource id ("mana": 3). */
+  readonly cost?: Readonly<Record<string, number>>;
 }
 
 export type EffectDef =
   | { readonly type: 'damage'; readonly amount: string }
   | { readonly type: 'heal'; readonly amount: string }
-  | { readonly type: 'applyCondition'; readonly condition: string; readonly rounds: number };
+  | { readonly type: 'applyCondition'; readonly condition: string; readonly rounds: number }
+  /** Gives the target back resource points (a mana potion), up to its max. */
+  | { readonly type: 'restore'; readonly resource: string; readonly amount: string };
 
 export interface MonsterDef {
   readonly id: string;

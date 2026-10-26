@@ -25,12 +25,16 @@ export function demoCharacter(name: string): CreatureSheet {
 }
 
 /**
- * Connected players on open tiles at the west edge of the map, two goblins
- * at the east edge. Throws if the map doesn't have room.
+ * Connected players on open tiles at the west edge of the map, two monsters
+ * at the east edge: goblins, or the first monster of the rules in play.
+ * Throws if the map doesn't have room or the rules have no monsters.
  */
 export function demoFight(host: HostSession): CombatantSetup[] {
   const { players, map } = host.snapshot();
   if (!map) throw new Error('Make a map first');
+  const system = host.snapshot().system ?? skirmish;
+  const monster = system.monsters.find((entry) => entry.id === 'goblin') ?? system.monsters[0];
+  if (!monster) throw new Error(`${system.name} has no monsters to fight`);
   const grid = createGrid(map.grid);
   const open: Cell[] = map.tiles
     .filter((tile) => !tile.blocked)
@@ -42,7 +46,7 @@ export function demoFight(host: HostSession): CombatantSetup[] {
   const east = open.slice(-2);
   return [
     ...heroes.map((player, index) => host.playerSetup(player.id, west[index] as Cell)),
-    setupFromMonster(skirmish, 'goblin', { id: 'goblin-1', side: 'monsters', position: east[0] as Cell, name: 'Goblin 1' }),
-    setupFromMonster(skirmish, 'goblin', { id: 'goblin-2', side: 'monsters', position: east[1] as Cell, name: 'Goblin 2' }),
+    setupFromMonster(system, monster.id, { id: `${monster.id}-1`, side: 'monsters', position: east[0] as Cell, name: `${monster.name} 1` }),
+    setupFromMonster(system, monster.id, { id: `${monster.id}-2`, side: 'monsters', position: east[1] as Cell, name: `${monster.name} 2` }),
   ];
 }

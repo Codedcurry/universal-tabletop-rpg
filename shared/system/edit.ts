@@ -86,6 +86,23 @@ export function removeCondition(system: GameSystem, id: string): GameSystem {
   };
 }
 
+/** Removes a resource, its cost from every ability, and every effect that restored it. */
+export function removeResource(system: GameSystem, id: string): GameSystem {
+  return {
+    ...system,
+    resources: (system.resources ?? []).filter((resource) => resource.id !== id),
+    abilities: system.abilities.map((ability) => {
+      const { cost, ...rest } = ability;
+      const kept = Object.fromEntries(Object.entries(cost ?? {}).filter(([resource]) => resource !== id));
+      return {
+        ...rest,
+        ...(Object.keys(kept).length > 0 ? { cost: kept } : {}),
+        effects: ability.effects.filter((effect) => effect.type !== 'restore' || effect.resource !== id),
+      };
+    }),
+  };
+}
+
 /**
  * A creature's sheet fitted to a system: renamed stats (old id → new id) keep
  * their values; stats and abilities the system doesn't have are dropped (and listed).
@@ -117,6 +134,7 @@ interface Fittable {
   readonly sheet: CreatureSheet;
   readonly hp: number;
   readonly conditions: readonly { readonly id: string }[];
+  readonly resources?: Readonly<Record<string, number>>;
 }
 
 /**
@@ -137,14 +155,25 @@ export function fitCreatures<T extends Fittable>(
     Object.entries(creatures).map(([id, creature]) => {
       const { sheet, dropped } = fitSheet(creature.sheet, system, renames);
       const lost = creature.conditions.filter((condition) => !conditions.has(condition.id));
-      const maxHp = computeCreature(system, sheet).maxHp;
+      const numbers = computeCreature(system, sheet);
+      const maxHp = numbers.maxHp;
       const hp = Math.min(creature.hp, maxHp);
+      // Points left in resources the system still has, within their new maximums.
+      const resources = creature.resources
+        ? Object.fromEntries(
+            Object.entries(creature.resources)
+              .filter(([id]) => id in numbers.resources)
+              .map(([id, left]) => [id, Math.min(left, numbers.resources[id] ?? 0)]),
+          )
+        : undefined;
+      const resourcesChanged = creature.resources !== undefined && JSON.stringify(resources) !== JSON.stringify(creature.resources);
       for (const entry of dropped) changes.push(`${sheet.name} loses ${entry}`);
       for (const condition of lost) changes.push(`${sheet.name} is no longer ${condition.id}`);
       if (hp < creature.hp) changes.push(`${sheet.name}'s HP drops to the new maximum, ${maxHp}`);
-      if (sheet === creature.sheet && lost.length === 0 && hp === creature.hp) return [id, creature];
+      if (sheet === creature.sheet && lost.length === 0 && hp === creature.hp && !resourcesChanged) return [id, creature];
       changed = true;
-      return [id, { ...creature, sheet, hp, conditions: creature.conditions.filter((condition) => conditions.has(condition.id)) }];
+      const fitted = { ...creature, sheet, hp, conditions: creature.conditions.filter((condition) => conditions.has(condition.id)) };
+      return [id, resourcesChanged ? { ...fitted, resources } : fitted];
     }),
   ) as Record<string, T>;
   return { creatures: changed ? fitted : creatures, changes };
@@ -172,6 +201,7 @@ export function renameVariableId(system: GameSystem, from: string, to: string): 
     defense: rename(system.defense),
     initiative: rename(system.initiative),
     movement: { ...system.movement, speed: rename(system.movement.speed) },
+    ...(system.resources ? { resources: system.resources.map((resource) => ({ ...resource, max: rename(resource.max) })) } : {}),
     abilities: system.abilities.map((ability) => ({
       ...ability,
       ...(ability.attack ? { attack: { roll: rename(ability.attack.roll) } } : {}),
@@ -185,9 +215,20 @@ export function renameVariableId(system: GameSystem, from: string, to: string): 
 }
 
 /** Renames an ability, condition, or monster id, and every reference to it. */
-export function renameEntryId(system: GameSystem, kind: 'ability' | 'condition' | 'monster', from: string, to: string): GameSystem {
+export function renameEntryId(system: GameSystem, kind: 'ability' | 'condition' | 'monster' | 'resource', from: string, to: string): GameSystem {
   if (from === to) return system;
   const swap = (id: string) => (id === from ? to : id);
+  if (kind === 'resource') {
+    return {
+      ...system,
+      resources: (system.resources ?? []).map((resource) => ({ ...resource, id: swap(resource.id) })),
+      abilities: system.abilities.map((ability) => ({
+        ...ability,
+        ...(ability.cost ? { cost: Object.fromEntries(Object.entries(ability.cost).map(([id, amount]) => [swap(id), amount])) } : {}),
+        effects: ability.effects.map((effect) => (effect.type === 'restore' ? { ...effect, resource: swap(effect.resource) } : effect)),
+      })),
+    };
+  }
   if (kind === 'monster') return { ...system, monsters: system.monsters.map((monster) => ({ ...monster, id: swap(monster.id) })) };
   if (kind === 'ability') {
     return {
@@ -211,7 +252,7 @@ export type EditorSection = 'basics' | 'stats' | 'conditions' | 'abilities' | 'm
 
 export function pathSection(path: string): EditorSection {
   const head = path.split(/[.[]/)[0];
-  if (head === 'stats' || head === 'derived') return 'stats';
+  if (head === 'stats' || head === 'derived' || head === 'resources') return 'stats';
   if (head === 'conditions' || head === 'abilities' || head === 'monsters') return head;
   return 'basics';
 }
@@ -242,6 +283,8 @@ const FIELD_NAMES: Readonly<Record<string, string>> = {
   xpValue: 'XP value',
   abilities: 'abilities',
   stats: 'stats',
+  refill: 'refill',
+  resource: 'resource',
 };
 
 /** Where a validation problem is, in words: "Abilities › Shield Bash › effect 1 › amount". */
@@ -257,6 +300,7 @@ export function describePath(system: GameSystem, path: string): string {
   const lists: Record<string, { label: string; entries: readonly { readonly name?: string; readonly id?: string }[] }> = {
     stats: { label: 'Stats', entries: system.stats },
     derived: { label: 'Stats', entries: system.derived },
+    resources: { label: 'Stats', entries: system.resources ?? [] },
     conditions: { label: 'Conditions', entries: system.conditions },
     abilities: { label: 'Abilities', entries: system.abilities },
     monsters: { label: 'Monsters', entries: system.monsters },
@@ -267,10 +311,13 @@ export function describePath(system: GameSystem, path: string): string {
     words.push(list.label, entry?.name || entry?.id || `entry ${first.index + 1}`);
   } else {
     words.push('Basics');
-    if (first.key !== 'health' && first.key !== 'movement' && first.key !== 'levels') words.push(FIELD_NAMES[first.key] ?? first.key);
+    if (first.key !== 'health' && first.key !== 'movement' && first.key !== 'levels' && first.key !== 'critical') words.push(FIELD_NAMES[first.key] ?? first.key);
   }
   for (const part of rest) {
-    if (part.key === 'effects' && part.index !== null) words.push(`effect ${part.index + 1}`);
+    if (first.key === 'resources' && part.key === 'max') words.push('max');
+    else if (first.key === 'critical') words.push(part.key === 'hit' ? 'critical hit roll' : 'critical miss roll');
+    else if (part.key === 'cost') words.push('cost');
+    else if (part.key === 'effects' && part.index !== null) words.push(`effect ${part.index + 1}`);
     else if (part.key === 'climb' || part.key === 'attack') continue;
     else words.push(part.index === null ? (FIELD_NAMES[part.key] ?? part.key) : `${FIELD_NAMES[part.key] ?? part.key} ${part.index + 1}`);
   }

@@ -22,6 +22,8 @@ export interface CreatureNumbers {
   readonly maxHp: number;
   readonly defense: number;
   readonly speed: number;
+  /** Each resource's maximum, by id. */
+  readonly resources: Readonly<Record<string, number>>;
 }
 
 /** These formulas are validated to be dice-free, so rolling here is a bug. */
@@ -60,6 +62,7 @@ export function computeCreature(system: GameSystem, sheet: CreatureSheet): Creat
     maxHp: Math.max(1, Math.floor(evaluateFixed(system.health.max, vars))),
     defense: Math.floor(evaluateFixed(system.defense, vars)),
     speed: Math.max(0, Math.floor(evaluateFixed(system.movement.speed, vars))),
+    resources: Object.fromEntries((system.resources ?? []).map((resource) => [resource.id, Math.max(0, Math.floor(evaluateFixed(resource.max, vars)))])),
   };
 }
 

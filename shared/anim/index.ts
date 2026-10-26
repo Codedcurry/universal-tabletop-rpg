@@ -169,7 +169,8 @@ export function scheduleCombatEvents(
             ? { combatantId: event.targetId, clip: 'hit', start: impact, duration: timing.hitMs }
             : { combatantId: event.targetId, clip: 'defend', start: impact, duration: timing.defendMs },
         );
-        say(event.targetId, event.amount > 0 ? `-${event.amount}` : '0', 'damage', impact);
+        // A critical hit's number gets a "!".
+        say(event.targetId, event.amount > 0 ? `-${event.amount}${event.critical ? '!' : ''}` : '0', 'damage', impact);
         break;
       case 'downed':
         add({ combatantId: event.targetId, clip: 'downed', start: impact + timing.hitMs, duration: timing.downedMs });

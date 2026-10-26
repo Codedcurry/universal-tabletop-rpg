@@ -807,6 +807,7 @@ export class HostSession {
       nameOf: (id) => combat.combatants[id]?.sheet.name ?? id,
       abilityName: (id) => system?.abilities.find((ability) => ability.id === id)?.name ?? id,
       conditionName: (id) => system?.conditions.find((condition) => condition.id === id)?.name ?? id,
+      resourceName: (id) => system?.resources?.find((resource) => resource.id === id)?.name ?? id,
     });
     for (const line of lines) {
       if (line.channel === 'general') this.log({ kind: 'system', text: line.text });

@@ -45,6 +45,8 @@ export interface Combatant {
   readonly conditions: readonly ActiveCondition[];
   /** Compass heading the creature faces (0 = north, PI/2 = east): picks its sprite direction. */
   readonly facing: number;
+  /** Resource points left, by id; a resource left out is full. */
+  readonly resources?: Readonly<Record<string, number>>;
 }
 
 /** The whole fight. Plain data, so the DM can sync it to players and save it. */
@@ -95,9 +97,23 @@ export type CombatEvent =
       readonly defense: number;
       readonly hit: boolean;
       readonly dice: readonly DiceTermResult[];
+      /** A natural roll the system calls a critical: a sure hit (damage dice rolled twice) or a sure miss. */
+      readonly critical?: 'hit' | 'miss';
     }
   /** `amount` is the damage dealt as rolled, even past 0 HP; `hp` is what's left. */
-  | { readonly type: 'damaged'; readonly targetId: string; readonly amount: number; readonly hp: number; readonly dice: readonly DiceTermResult[] }
+  | {
+      readonly type: 'damaged';
+      readonly targetId: string;
+      readonly amount: number;
+      readonly hp: number;
+      readonly dice: readonly DiceTermResult[];
+      /** From a critical hit: the damage dice were rolled twice. */
+      readonly critical?: boolean;
+    }
+  /** Resource points spent on an ability; `left` is what remains. */
+  | { readonly type: 'resourceSpent'; readonly combatantId: string; readonly resource: string; readonly amount: number; readonly left: number }
+  /** Resource points given back (up to the max); `amount` is what was actually restored. */
+  | { readonly type: 'resourceRestored'; readonly targetId: string; readonly resource: string; readonly amount: number; readonly left: number; readonly dice: readonly DiceTermResult[] }
   /** `amount` is the HP actually restored, after capping at max HP. */
   | { readonly type: 'healed'; readonly targetId: string; readonly amount: number; readonly hp: number; readonly dice: readonly DiceTermResult[] }
   | { readonly type: 'downed'; readonly targetId: string }
@@ -126,6 +142,8 @@ export interface CombatantPatch {
   readonly xpValue?: number;
   readonly abilities?: readonly string[];
   readonly conditions?: readonly ActiveCondition[];
+  /** Resource points left, by id (up to each one's max). */
+  readonly resources?: Readonly<Record<string, number>>;
 }
 
 export type ActionResult =

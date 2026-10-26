@@ -215,11 +215,14 @@ function CreatureEditor({ id, combatant, system, players, playersControlOwn, onS
   const [xpValue, setXpValue] = useState(String(combatant.xpValue));
   const [conditions, setConditions] = useState<ActiveCondition[]>([...combatant.conditions]);
   const [abilities, setAbilities] = useState<string[]>([...sheet.abilities]);
+  const numbers = useMemo(() => computeCreature(system, sheet), [system, sheet]);
+  const pointsLeft = (resourceId: string) => combatant.resources?.[resourceId] ?? numbers.resources[resourceId] ?? 0;
+  const [resources, setResources] = useState(() => Object.fromEntries((system.resources ?? []).map((resource) => [resource.id, String(pointsLeft(resource.id))])));
   // A player's own character is theirs while players control their own; anything else the DM can hand over.
   const owner = players.find((player) => player.character?.id === id);
   const handedTo = players.find((player) => player.controls.includes(id) && (player !== owner || !playersControlOwn))?.id ?? '';
   const [controller, setController] = useState(handedTo);
-  const maxHp = useMemo(() => computeCreature(system, sheet).maxHp, [system, sheet]);
+  const maxHp = numbers.maxHp;
 
   function save(event: FormEvent) {
     event.preventDefault();
@@ -237,6 +240,12 @@ function CreatureEditor({ id, combatant, system, players, playersControlOwn, onS
     if (Number(xpValue) !== combatant.xpValue) patch.xpValue = Number(xpValue);
     if (JSON.stringify(conditions) !== JSON.stringify(combatant.conditions)) patch.conditions = conditions;
     if (JSON.stringify(abilities) !== JSON.stringify(sheet.abilities)) patch.abilities = abilities;
+    const changedResources = Object.fromEntries(
+      Object.entries(resources)
+        .map(([resourceId, value]) => [resourceId, Number(value)] as const)
+        .filter(([resourceId, value]) => value !== pointsLeft(resourceId)),
+    );
+    if (Object.keys(changedResources).length > 0) patch.resources = changedResources;
     onSave(name, patch, controller === handedTo ? undefined : controller || null);
   }
 
@@ -258,6 +267,18 @@ function CreatureEditor({ id, combatant, system, players, playersControlOwn, onS
             <span>HP</span>
             <input type="number" min={0} max={maxHp} value={hp} onChange={(event) => setHp(event.target.value)} />
           </label>
+          {(system.resources ?? []).map((resource) => (
+            <label key={`resource-${resource.id}`}>
+              <span>{resource.name}</span>
+              <input
+                type="number"
+                min={0}
+                max={numbers.resources[resource.id] ?? 0}
+                value={resources[resource.id] ?? ''}
+                onChange={(event) => setResources((current) => ({ ...current, [resource.id]: event.target.value }))}
+              />
+            </label>
+          ))}
           {system.stats.map((stat) => (
             <label key={stat.id}>
               <span>{stat.name}</span>

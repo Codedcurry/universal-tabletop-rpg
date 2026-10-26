@@ -16,13 +16,18 @@ async function open(browser: Browser) {
   return context.newPage();
 }
 
-async function table(browser: Browser) {
+/** DM and Ana at a table; a small map (`size`) keeps everyone within Shoot range. */
+async function table(browser: Browser, size?: { width: number; height: number }) {
   const dm = await open(browser);
   await dm.goto('/');
   await dm.getByLabel('Your name').fill('Dana');
   await dm.getByRole('button', { name: 'Host a game' }).click();
   const link = (await dm.getByTestId('join-link').textContent()) ?? '';
   await dm.getByRole('button', { name: 'New map' }).click();
+  if (size) {
+    await dm.getByRole('group', { name: 'New map' }).getByLabel('Width').fill(String(size.width));
+    await dm.getByRole('group', { name: 'New map' }).getByLabel('Height').fill(String(size.height));
+  }
   await dm.getByRole('group', { name: 'New map' }).getByRole('button', { name: 'Create' }).click();
   const ana = await open(browser);
   await ana.goto(link);
@@ -130,4 +135,65 @@ test('the DM starts a new system from a blank one', async ({ browser }) => {
   // Its monster is there to add.
   await dm.getByRole('tab', { name: 'Encounter' }).click();
   await expect(dm.getByRole('tabpanel', { name: 'Encounter' }).getByLabel('Add')).toContainText('Monster');
+});
+
+test('the DM adds Mana and makes Shoot cost 2: it shows, is spent, refuses when short, and the DM can top it up', async ({ browser }) => {
+  const { dm, ana } = await table(browser, { width: 5, height: 4 });
+  await dm.getByRole('tab', { name: 'Rules' }).click();
+  const rules = dm.getByRole('tabpanel', { name: 'Rules' });
+  await rules.getByRole('button', { name: 'Edit rules' }).click();
+  const editor = dm.getByRole('dialog', { name: 'Rules editor' });
+
+  // A resource, under Stats.
+  await editor.getByRole('tab', { name: 'Stats' }).click();
+  await editor.getByRole('button', { name: 'Add a resource' }).click();
+  const mana = editor.getByRole('group', { name: 'Resource New resource' });
+  await mana.getByLabel(/^Name/).fill('Mana');
+  const named = editor.getByRole('group', { name: 'Resource Mana' });
+  await named.getByLabel(/^Max/).fill('3');
+  await named.getByLabel(/^Refills/).selectOption('fight');
+
+  // Shoot costs 2 of it; criticals on.
+  await editor.getByRole('tab', { name: 'Abilities' }).click();
+  const shoot = editor.getByRole('group', { name: 'Ability Shoot' });
+  await shoot.locator('summary').click();
+  await shoot.getByLabel(/^Mana cost/).fill('2');
+  await editor.getByRole('tab', { name: 'Basics' }).click();
+  await editor.getByLabel(/Attack rolls can be critical/).check();
+  await editor.getByRole('button', { name: 'Apply to game' }).click();
+  await expect(editor).toHaveCount(0);
+
+  // The fight, with Ana's Mana in the combat bar.
+  await dm.getByRole('button', { name: 'Start demo fight' }).click();
+  await expect(ana.getByTestId('turn-banner')).toContainText('Round 1');
+  for (let i = 0; i < 4 && !(await ana.getByTestId('turn-banner').textContent())?.includes("Ana's turn"); i++) {
+    await dm.getByRole('button', { name: 'End turn' }).click();
+    await ana.waitForTimeout(150);
+  }
+  const bar = ana.getByRole('region', { name: 'Your turn' });
+  await expect(bar.getByRole('meter', { name: 'Mana' })).toHaveAccessibleDescription('3 of 3');
+  await expect(bar.getByRole('button', { name: /^Shoot/ })).toContainText('range 6 · 2 Mana');
+  await bar.getByRole('button', { name: /^Shoot/ }).click();
+  await ana.getByRole('button', { name: /^Target Goblin/ }).first().click();
+  await expect(ana.getByTestId('log').getByText('Ana spends 2 Mana (1 left)')).toBeVisible();
+
+  // Next turn: only 1 left (it refills each fight), so Shoot is refused, and no ruling can change that.
+  for (let i = 0; i < 4; i++) {
+    await dm.getByRole('button', { name: 'End turn' }).click();
+    await ana.waitForTimeout(150);
+    if ((await ana.getByTestId('turn-banner').textContent())?.includes("Ana's turn")) break;
+  }
+  await expect(bar.getByRole('meter', { name: 'Mana' })).toHaveAccessibleDescription('1 of 3');
+  await expect(bar.getByRole('button', { name: /^Shoot/ })).toBeDisabled();
+  await expect(bar.getByRole('button', { name: /^Shoot/ })).toHaveAttribute('title', 'Not enough Mana');
+
+  // The DM tops it up in the creature editor.
+  await dm.getByRole('tab', { name: 'Encounter' }).click();
+  const encounter = dm.getByRole('tabpanel', { name: 'Encounter' });
+  await encounter.locator('.roster-entry').filter({ hasText: 'Ana' }).click();
+  const creature = encounter.getByRole('group', { name: 'Edit Ana' });
+  await creature.getByLabel('Mana').fill('3');
+  await creature.getByRole('button', { name: 'Save changes' }).click();
+  await expect(ana.getByTestId('log').getByText('DM changes Ana: Mana 1 → 3')).toBeVisible();
+  await expect(bar.getByRole('meter', { name: 'Mana' })).toHaveAccessibleDescription('3 of 3');
 });

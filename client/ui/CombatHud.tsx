@@ -1,5 +1,5 @@
 import { type CSSProperties, useId, useState } from 'react';
-import { type CombatAction, type CombatState, describeHouseRule } from '@shared/combat';
+import { type CombatAction, type CombatState, describeHouseRule, resourceLeft } from '@shared/combat';
 import { type GameSystem, abilityIntent, computeCreature, levelForXp } from '@shared/system';
 import { placeholderStyle } from '../style/stylePack';
 import type { CombatPlay, Refusal } from './useCombatPlay';
@@ -29,7 +29,7 @@ function Meter({ label, value, max, description, tone }: {
   value: number;
   max: number;
   description: string;
-  tone: 'hp' | 'xp';
+  tone: 'hp' | 'xp' | 'resource';
 }) {
   const id = useId();
   const share = max > 0 ? Math.max(0, Math.min(1, value / max)) : 1;
@@ -142,12 +142,18 @@ export function CombatHud({ combat, system, play, ruling = {} }: { combat: Comba
             tone="xp"
           />
         )}
+        {(system.resources ?? []).map((resource) => {
+          const max = numbers.resources[resource.id] ?? 0;
+          const left = resourceLeft(system, actor, resource.id);
+          return <Meter key={resource.id} label={resource.name} value={left} max={max} description={`${left} of ${max}`} tone="resource" />;
+        })}
       </div>
       <div className="hud-abilities">
         {abilities.map((ability) => {
           // Pickable whenever the action is free, even with nobody in reach (picking shows the range) or held
           // by a condition (picking says why not, for the DM to overrule).
-          const usable = !combat.actionUsed;
+          const short = Object.entries(ability.cost ?? {}).find(([id, amount]) => resourceLeft(system, actor, id) < amount);
+          const usable = !combat.actionUsed && !short;
           return (
             <button
               key={ability.id}
@@ -155,7 +161,11 @@ export function CombatHud({ combat, system, play, ruling = {} }: { combat: Comba
               className={`hud-ability ${abilityIntent(ability)}`}
               aria-pressed={play.ability === ability.id}
               disabled={!usable}
-              title={ability.description ?? `${ability.name} (range ${ability.range})`}
+              title={
+                short
+                  ? `Not enough ${system.resources?.find((resource) => resource.id === short[0])?.name ?? short[0]}`
+                  : (ability.description ?? `${ability.name} (range ${ability.range})`)
+              }
               onClick={() => play.selectAbility(ability.id)}
               // Hovering or focusing an ability previews its range on the map.
               onPointerEnter={() => play.previewAbility(ability.id)}
@@ -164,7 +174,12 @@ export function CombatHud({ combat, system, play, ruling = {} }: { combat: Comba
               onBlur={() => play.previewAbility(null)}
             >
               {ability.name}
-              <small className="hud-range">{ability.target === 'self' ? 'self' : `range ${ability.range}`}</small>
+              <small className="hud-range">
+                {[
+                  ability.target === 'self' ? 'self' : `range ${ability.range}`,
+                  ...Object.entries(ability.cost ?? {}).map(([id, amount]) => `${amount} ${system.resources?.find((resource) => resource.id === id)?.name ?? id}`),
+                ].join(' · ')}
+              </small>
             </button>
           );
         })}

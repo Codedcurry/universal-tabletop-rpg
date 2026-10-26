@@ -12,15 +12,25 @@ export interface DescribeContext {
   nameOf(combatantId: string): string;
   abilityName(abilityId: string): string;
   conditionName(conditionId: string): string;
+  /** A resource's name ("Mana"); its id if left out. */
+  resourceName?(resourceId: string): string;
   /** What the DM calls themselves (defaults to "DM"). */
   readonly dmTitle?: string;
 }
 
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
 
+/** How an attack roll went: hit or miss, and whether the natural roll made it critical. */
+function outcome(event: { readonly hit: boolean; readonly critical?: 'hit' | 'miss' }): string {
+  if (event.critical === 'hit') return 'critical hit!';
+  if (event.critical === 'miss') return 'critical miss';
+  return event.hit ? 'hit' : 'miss';
+}
+
 /** Turns the events of a combat action into readable log lines. */
 export function describeCombatEvents(events: readonly CombatEvent[], context: DescribeContext): CombatLine[] {
   const { nameOf, abilityName, conditionName } = context;
+  const resourceName = (id: string) => context.resourceName?.(id) ?? id;
   const dm = context.dmTitle ?? 'DM';
   const lines: CombatLine[] = [];
   const game = (text: string, tone: CombatLine['tone'] = 'info') => lines.push({ channel: 'game', tone, text });
@@ -34,7 +44,7 @@ export function describeCombatEvents(events: readonly CombatEvent[], context: De
         if (next?.type === 'attackRolled' && next.actorId === event.actorId) {
           // The attack roll is reported with the ability, as one line.
           game(
-            `${nameOf(event.actorId)}'s ${ability} on ${nameOf(event.targetId)}: ${next.total} vs defense ${next.defense}, ${next.hit ? 'hit' : 'miss'}`,
+            `${nameOf(event.actorId)}'s ${ability} on ${nameOf(event.targetId)}: ${next.total} vs defense ${next.defense}, ${outcome(next)}`,
             'action',
           );
         } else if (event.targetId === event.actorId) {
@@ -47,11 +57,17 @@ export function describeCombatEvents(events: readonly CombatEvent[], context: De
       case 'attackRolled': {
         const previous = events[index - 1];
         if (previous?.type === 'abilityUsed' && previous.actorId === event.actorId) break; // already reported
-        game(`${nameOf(event.actorId)} attacks ${nameOf(event.targetId)}: ${event.total} vs defense ${event.defense}, ${event.hit ? 'hit' : 'miss'}`, 'action');
+        game(`${nameOf(event.actorId)} attacks ${nameOf(event.targetId)}: ${event.total} vs defense ${event.defense}, ${outcome(event)}`, 'action');
         break;
       }
       case 'damaged':
         game(`${nameOf(event.targetId)} takes ${event.amount} damage (${event.hp} HP left)`, 'damage');
+        break;
+      case 'resourceSpent':
+        game(`${nameOf(event.combatantId)} spends ${event.amount} ${resourceName(event.resource)} (${event.left} left)`);
+        break;
+      case 'resourceRestored':
+        game(`${nameOf(event.targetId)} regains ${event.amount} ${resourceName(event.resource)} (${event.left})`, 'heal');
         break;
       case 'healed':
         game(`${nameOf(event.targetId)} heals ${event.amount} (${event.hp} HP)`, 'heal');

@@ -12,6 +12,7 @@ import {
   pathSection,
   removeAbility,
   removeCondition,
+  removeResource,
   removeStat,
   renameEntryId,
   renameVariableId,
@@ -22,7 +23,9 @@ import {
 // conditions, abilities, monsters), checked as it's typed, with each problem
 // shown by its field and listed in words. Nothing changes in the game until
 // it's applied. New entries get ids from their names; a stat's formula name
-// (@str) can be changed, and every formula using it follows.
+// (@str) can be changed, and every formula using it follows. Optional parts
+// of the format: resources (mana, spell slots) that abilities cost and
+// effects give back, and critical hits and misses.
 
 const SECTIONS: readonly { id: EditorSection; label: string }[] = [
   { id: 'basics', label: 'Basics' },
@@ -113,7 +116,7 @@ export function SystemEditor({
   const without = <T,>(list: readonly T[], index: number): T[] => list.filter((_, i) => i !== index);
 
   /** A new entry's name changed: its id follows, with every reference. */
-  function renamed(kind: 'ability' | 'condition' | 'monster' | 'stat', id: string, name: string, now: GameSystem): GameSystem {
+  function renamed(kind: 'ability' | 'condition' | 'monster' | 'resource' | 'stat', id: string, name: string, now: GameSystem): GameSystem {
     if (!added.has(id)) return now;
     const taken = new Set(
       kind === 'ability'
@@ -122,7 +125,9 @@ export function SystemEditor({
           ? now.conditions.map((entry) => entry.id)
           : kind === 'monster'
             ? now.monsters.map((entry) => entry.id)
-            : ['level', ...now.stats.map((entry) => entry.id), ...now.derived.map((entry) => entry.id)],
+            : kind === 'resource'
+              ? (now.resources ?? []).map((entry) => entry.id)
+              : ['level', ...now.stats.map((entry) => entry.id), ...now.derived.map((entry) => entry.id)],
     );
     taken.delete(id);
     const next = idFrom(name, taken);
@@ -148,8 +153,13 @@ export function SystemEditor({
     }
   }
 
-  function addEntry(kind: 'stat' | 'derived' | 'condition' | 'ability' | 'monster') {
+  function addEntry(kind: 'stat' | 'derived' | 'resource' | 'condition' | 'ability' | 'monster') {
     setSystem((now) => {
+      if (kind === 'resource') {
+        const id = idFrom('New resource', new Set((now.resources ?? []).map((entry) => entry.id)));
+        setAdded((ids) => new Set([...ids, id]));
+        return { ...now, resources: [...(now.resources ?? []), { id, name: 'New resource', max: '3', refill: 'fight' }] };
+      }
       const variableIds = new Set(['level', ...now.stats.map((stat) => stat.id), ...now.derived.map((derived) => derived.id)]);
       if (kind === 'stat') {
         const id = idFrom('New stat', variableIds);
@@ -310,6 +320,54 @@ export function SystemEditor({
               </>
             )}
           </div>
+          <h4>Critical hits</h4>
+          <div className="row">
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={system.critical !== undefined}
+                onChange={(event) =>
+                  update((now) => {
+                    const { critical: _critical, ...rest } = now;
+                    return event.target.checked ? { ...rest, critical: { hit: 20, miss: 1 } } : rest;
+                  })
+                }
+              />
+              <span>Attack rolls can be critical (by the natural roll: the first die)</span>
+            </label>
+            {system.critical && (
+              <>
+                <Field label="Always hits, damage dice twice, on at least" error={errorAt('critical.hit')}>
+                  <input
+                    type="number"
+                    min={1}
+                    placeholder="never"
+                    value={system.critical.hit ?? ''}
+                    onChange={(event) =>
+                      update((now) => {
+                        const { hit: _hit, ...rest } = now.critical ?? {};
+                        return { ...now, critical: event.target.value === '' ? rest : { ...rest, hit: Number(event.target.value) } };
+                      })
+                    }
+                  />
+                </Field>
+                <Field label="Always misses on at most" error={errorAt('critical.miss')}>
+                  <input
+                    type="number"
+                    min={1}
+                    placeholder="never"
+                    value={system.critical.miss ?? ''}
+                    onChange={(event) =>
+                      update((now) => {
+                        const { miss: _miss, ...rest } = now.critical ?? {};
+                        return { ...now, critical: event.target.value === '' ? rest : { ...rest, miss: Number(event.target.value) } };
+                      })
+                    }
+                  />
+                </Field>
+              </>
+            )}
+          </div>
           {formulaHint}
         </div>
 
@@ -372,6 +430,46 @@ export function SystemEditor({
           ))}
           <button type="button" onClick={() => addEntry('derived')}>
             Add a worked-out value
+          </button>
+
+          <h4>Resources</h4>
+          <p className="muted small">Points abilities spend (mana, spell slots, ki): each creature has up to its max, refilled each turn or each fight.</p>
+          {(system.resources ?? []).map((resource, index) => (
+            <div key={`resource-${index}`} className="row rules-row" role="group" aria-label={`Resource ${resource.name}`}>
+              <Field label="Name" error={errorAt(`resources[${index}].name`)} wide>
+                <input
+                  value={resource.name}
+                  onChange={(event) => {
+                    const name = event.target.value;
+                    update((now) => renamed('resource', resource.id, name, { ...now, resources: at(now.resources ?? [], index, { ...(now.resources ?? [])[index]!, name }) }));
+                  }}
+                />
+              </Field>
+              <Field label="Max" error={errorAt(`resources[${index}].max`)} wide>
+                <input
+                  className="formula"
+                  value={resource.max}
+                  onChange={(event) => update((now) => ({ ...now, resources: at(now.resources ?? [], index, { ...(now.resources ?? [])[index]!, max: event.target.value }) }))}
+                />
+              </Field>
+              <Field label="Refills" error={errorAt(`resources[${index}].refill`)}>
+                <select
+                  value={resource.refill}
+                  onChange={(event) =>
+                    update((now) => ({ ...now, resources: at(now.resources ?? [], index, { ...(now.resources ?? [])[index]!, refill: event.target.value as 'turn' | 'fight' }) }))
+                  }
+                >
+                  <option value="turn">every turn</option>
+                  <option value="fight">every fight</option>
+                </select>
+              </Field>
+              <button type="button" aria-label={`Remove resource ${resource.name}`} onClick={() => update((now) => removeResource(now, resource.id))}>
+                Remove
+              </button>
+            </div>
+          ))}
+          <button type="button" onClick={() => addEntry('resource')}>
+            Add a resource
           </button>
           {formulaHint}
         </div>
@@ -508,6 +606,28 @@ export function SystemEditor({
                   </Field>
                 )}
               </div>
+              {(system.resources ?? []).length > 0 && (
+                <div className="row">
+                  {(system.resources ?? []).map((resource) => (
+                    <Field key={resource.id} label={`${resource.name} cost`} error={errorAt(`abilities[${index}].cost.${resource.id}`)}>
+                      <input
+                        type="number"
+                        min={0}
+                        placeholder="0"
+                        value={ability.cost?.[resource.id] ?? ''}
+                        onChange={(event) =>
+                          update((now) => {
+                            const { cost, ...rest } = now.abilities[index]!;
+                            const next = Object.fromEntries(Object.entries(cost ?? {}).filter(([id]) => id !== resource.id));
+                            if (event.target.value !== '' && Number(event.target.value) !== 0) next[resource.id] = Number(event.target.value);
+                            return { ...now, abilities: at(now.abilities, index, Object.keys(next).length > 0 ? { ...rest, cost: next } : rest) };
+                          })
+                        }
+                      />
+                    </Field>
+                  ))}
+                </div>
+              )}
               <h5>What it does</h5>
               {errorAt(`abilities[${index}].effects`) && <p className="field-error">{errorAt(`abilities[${index}].effects`)}</p>}
               {ability.effects.map((effect, effectIndex) => {
@@ -524,13 +644,16 @@ export function SystemEditor({
                             effectIndex,
                             type === 'applyCondition'
                               ? { type, condition: system.conditions[0]?.id ?? '', rounds: 1 }
-                              : { type, amount: effect.type === 'applyCondition' ? '1d6' : effect.amount },
+                              : type === 'restore'
+                                ? { type, resource: system.resources?.[0]?.id ?? '', amount: effect.type === 'applyCondition' ? '1d4' : effect.amount }
+                                : { type, amount: effect.type === 'applyCondition' ? '1d6' : effect.amount },
                           );
                         }}
                       >
                         <option value="damage">damage</option>
                         <option value="heal">heal</option>
                         <option value="applyCondition">put on a condition</option>
+                        {((system.resources ?? []).length > 0 || effect.type === 'restore') && <option value="restore">give back a resource</option>}
                       </select>
                     </Field>
                     {effect.type === 'applyCondition' ? (
@@ -547,6 +670,22 @@ export function SystemEditor({
                         </Field>
                         <Field label="Rounds" error={errorAt(`${base}.rounds`)}>
                           <NumberInput min={1} value={effect.rounds} onChange={(value) => setEffect(index, effectIndex, { ...effect, rounds: value })} />
+                        </Field>
+                      </>
+                    ) : effect.type === 'restore' ? (
+                      <>
+                        <Field label="Resource" error={errorAt(`${base}.resource`)}>
+                          <select value={effect.resource} onChange={(event) => setEffect(index, effectIndex, { ...effect, resource: event.target.value })}>
+                            {!(system.resources ?? []).some((resource) => resource.id === effect.resource) && <option value={effect.resource}>(choose one)</option>}
+                            {(system.resources ?? []).map((resource) => (
+                              <option key={resource.id} value={resource.id}>
+                                {resource.name}
+                              </option>
+                            ))}
+                          </select>
+                        </Field>
+                        <Field label="Amount" error={errorAt(`${base}.amount`)} wide>
+                          <input className="formula" value={effect.amount} onChange={(event) => setEffect(index, effectIndex, { ...effect, amount: event.target.value })} />
                         </Field>
                       </>
                     ) : (

@@ -91,7 +91,8 @@ export function HostView({ game, combatEvents, lastSaved = null, notice = null }
 
   function startDemoFight() {
     attempt(() => {
-      session.setSystem(demoSystem);
+      // The rules in play (the sample rules if there are none yet).
+      if (!session.snapshot().system) session.setSystem(demoSystem);
       if (!session.snapshot().map) session.setMap(demoMap);
       session.startCombat(demoFight(session));
     });

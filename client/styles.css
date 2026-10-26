@@ -1720,3 +1720,6 @@ button.danger {
 .hud-refusal .row {
   align-items: center;
 }
+.hud-meter.resource .hud-meter-fill {
+  background: #5aa8f0;
+}

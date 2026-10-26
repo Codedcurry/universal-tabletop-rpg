@@ -2,6 +2,7 @@ export type * from './types';
 export {
   CombatSetupError,
   actionProblems,
+  resourceLeft,
   abilityReach,
   activeCombatant,
   applyAction,

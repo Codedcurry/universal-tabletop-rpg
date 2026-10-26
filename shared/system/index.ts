@@ -13,6 +13,7 @@ export {
   pathSection,
   removeAbility,
   removeCondition,
+  removeResource,
   removeStat,
   renameEntryId,
   renameVariableId,

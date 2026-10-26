@@ -261,11 +261,24 @@ export function dmEditCombatant(ctx: CombatContext, state: CombatState, id: stri
       next = { ...next, conditions: [...patch.conditions] };
     }
 
-    let maxHp = 1;
+    let numbers: ReturnType<typeof computeCreature> | null = null;
     try {
-      maxHp = computeCreature(system, sheet).maxHp;
+      numbers = computeCreature(system, sheet);
     } catch (error) {
       violation(error instanceof Error ? error.message : String(error));
+    }
+    const maxHp = numbers.maxHp;
+    if (patch.resources) {
+      const resources = { ...next.resources };
+      for (const [resourceId, value] of Object.entries(patch.resources)) {
+        const resource = system.resources?.find((entry) => entry.id === resourceId) ?? violation(`Unknown resource "${resourceId}"`);
+        const max = numbers.resources[resourceId] ?? 0;
+        if (!Number.isInteger(value) || value < 0 || value > max) violation(`${resource.name} must be a whole number from 0 to ${max}`);
+        const old = next.resources?.[resourceId] ?? max;
+        if (old !== value) changes.push(`${resource.name} ${old} → ${value}`);
+        resources[resourceId] = value;
+      }
+      next = { ...next, resources };
     }
     if (patch.hp !== undefined && (!Number.isInteger(patch.hp) || patch.hp < 0)) violation('HP must be a whole number of at least 0');
     const hp = Math.min(patch.hp ?? before.hp, maxHp);

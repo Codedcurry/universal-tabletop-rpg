@@ -53,6 +53,25 @@ export function roll(text: string, vars: Readonly<Record<string, number>>, rando
   return { value: Math.floor(result.value), dice: result.dice };
 }
 
+/** A creature's resource points left: what it has spent down to, or full. */
+export function resourceLeft(system: GameSystem, combatant: Combatant, resourceId: string): number {
+  return combatant.resources?.[resourceId] ?? computeCreature(system, combatant.sheet).resources[resourceId] ?? 0;
+}
+
+/** The first resource an ability costs more of than the creature has, if any. */
+function unaffordable(system: GameSystem, actor: Combatant, ability: AbilityDef): { name: string; cost: number; left: number } | null {
+  for (const [id, cost] of Object.entries(ability.cost ?? {})) {
+    const left = resourceLeft(system, actor, id);
+    if (left < cost) return { name: system.resources?.find((resource) => resource.id === id)?.name ?? id, cost, left };
+  }
+  return null;
+}
+
+/** The natural roll of an attack: the kept die of its first dice term. */
+function naturalRoll(dice: readonly { readonly dice: readonly { readonly value: number; readonly kept: boolean }[] }[]): number | null {
+  return dice[0]?.dice.find((die) => die.kept)?.value ?? null;
+}
+
 /** @internal */
 export function standing(combatant: Combatant): boolean {
   return combatant.hp > 0;
@@ -169,6 +188,11 @@ export class Draft {
     this.movementLeft = blockingCondition({ ...this.ctx, overrules: [] }, combatant, 'preventsMovement')
       ? 0
       : computeCreature(this.ctx.system, combatant.sheet).speed + extra;
+    // Resources that refill each turn are full again.
+    const refilled = (this.ctx.system.resources ?? []).filter((resource) => resource.refill === 'turn').map((resource) => resource.id);
+    if (combatant.resources && refilled.some((resource) => resource in combatant.resources!)) {
+      this.update(id, { resources: Object.fromEntries(Object.entries(combatant.resources).filter(([resource]) => !refilled.includes(resource))) });
+    }
     this.emit({ type: 'turnStarted', combatantId: id, round: this.round });
   }
 
@@ -437,21 +461,38 @@ function useAbility(
   if (!actor.sheet.abilities.includes(abilityId)) violation(`${actor.sheet.name} doesn't know ${ability.name}`);
   const target = draft.get(targetId);
   checkTarget(ctx, ability, actor, target);
+  const short = unaffordable(system, actor, ability);
+  if (short) violation(`${actor.sheet.name} doesn't have enough ${short.name} (${short.cost} needed, ${short.left} left)`);
 
   draft.actionUsed = true;
+  // The cost is paid now, and reported after the attack roll (so the log reads: the attack, what it cost, what it did).
+  const spent: CombatEvent[] = [];
+  for (const [resource, amount] of Object.entries(ability.cost ?? {})) {
+    const left = resourceLeft(system, draft.get(actorId), resource) - amount;
+    draft.update(actorId, { resources: { ...draft.get(actorId).resources, [resource]: left } });
+    spent.push({ type: 'resourceSpent', combatantId: actorId, resource, amount, left });
+  }
   if (targetId !== actorId) draft.update(actorId, { facing: headingBetween(ctx.map.grid, actor.position, target.position) });
   draft.emit({ type: 'abilityUsed', actorId, abilityId, targetId, animation: ability.animation });
 
   const actorVars = computeCreature(system, actor.sheet).vars;
+  let critical = false;
   if (ability.attack) {
     const attack = roll(ability.attack.roll, actorVars, random);
     const defense = computeCreature(system, target.sheet).defense;
-    const hit = attack.value >= defense;
-    draft.emit({ type: 'attackRolled', actorId, targetId, total: attack.value, defense, hit, dice: attack.dice });
+    // A natural roll the system calls critical decides it, whatever the total.
+    const natural = naturalRoll(attack.dice);
+    const sure = natural === null ? undefined : system.critical?.miss !== undefined && natural <= system.critical.miss ? 'miss' : system.critical?.hit !== undefined && natural >= system.critical.hit ? 'hit' : undefined;
+    const hit = sure ? sure === 'hit' : attack.value >= defense;
+    critical = sure === 'hit';
+    draft.emit({ type: 'attackRolled', actorId, targetId, total: attack.value, defense, hit, dice: attack.dice, ...(sure ? { critical: sure } : {}) });
+    spent.forEach((event) => draft.emit(event));
     if (!hit) return;
+  } else {
+    spent.forEach((event) => draft.emit(event));
   }
 
-  for (const effect of ability.effects) applyEffect(ctx, draft, effect, actorVars, targetId, random);
+  for (const effect of ability.effects) applyEffect(ctx, draft, effect, actorVars, targetId, random, critical);
   checkForEnd(ctx, draft);
 }
 
@@ -462,15 +503,20 @@ function applyEffect(
   actorVars: Readonly<Record<string, number>>,
   targetId: string,
   random: RandomSource,
+  critical = false,
 ): void {
   const target = draft.get(targetId);
   switch (effect.type) {
     case 'damage': {
-      const { value, dice } = roll(effect.amount, actorVars, random);
+      const first = roll(effect.amount, actorVars, random);
+      // A critical hit rolls the damage dice again and adds them (not the bonuses).
+      const again = critical ? roll(effect.amount, actorVars, random).dice : [];
+      const value = first.value + again.reduce((total, term) => total + term.subtotal, 0);
+      const dice = [...first.dice, ...again];
       const amount = Math.max(0, value);
       const hp = Math.max(0, target.hp - amount);
       draft.update(targetId, { hp });
-      draft.emit({ type: 'damaged', targetId, amount, hp, dice });
+      draft.emit({ type: 'damaged', targetId, amount, hp, dice, ...(critical ? { critical: true } : {}) });
       if (target.hp > 0 && hp === 0) draft.emit({ type: 'downed', targetId });
       return;
     }
@@ -481,6 +527,15 @@ function applyEffect(
       draft.update(targetId, { hp });
       draft.emit({ type: 'healed', targetId, amount: hp - target.hp, hp, dice });
       if (target.hp === 0 && hp > 0) draft.emit({ type: 'revived', targetId });
+      return;
+    }
+    case 'restore': {
+      const { value, dice } = roll(effect.amount, actorVars, random);
+      const max = computeCreature(ctx.system, target.sheet).resources[effect.resource] ?? 0;
+      const before = resourceLeft(ctx.system, target, effect.resource);
+      const left = Math.min(max, before + Math.max(0, value));
+      draft.update(targetId, { resources: { ...target.resources, [effect.resource]: left } });
+      draft.emit({ type: 'resourceRestored', targetId, resource: effect.resource, amount: left - before, left, dice });
       return;
     }
     case 'applyCondition': {
@@ -583,7 +638,7 @@ export function targetOptions(ctx: CombatContext, state: CombatState, actorId: s
   const actor = canAct(state, actorId);
   if (!actor || state.actionUsed || blockingCondition(ctx, actor, 'preventsActions')) return [];
   const ability = ctx.system.abilities.find((entry) => entry.id === abilityId);
-  if (!ability || !actor.sheet.abilities.includes(abilityId)) return [];
+  if (!ability || !actor.sheet.abilities.includes(abilityId) || unaffordable(ctx.system, actor, ability)) return [];
   return Object.entries(state.combatants)
     .filter(([, target]) => {
       try {
@@ -661,6 +716,8 @@ export function actionProblems(ctx: CombatContext, state: CombatState, action: C
   const ability = ctx.system.abilities.find((entry) => entry.id === action.abilityId);
   if (!ability) return [...problems, { message: `Unknown ability "${action.abilityId}"`, fix: null }];
   if (!actor.sheet.abilities.includes(ability.id)) problems.push({ message: `${actor.sheet.name} doesn't know ${ability.name}`, fix: null });
+  const short = unaffordable(ctx.system, actor, ability);
+  if (short) problems.push({ message: `${actor.sheet.name} doesn't have enough ${short.name} (${short.cost} needed, ${short.left} left)`, fix: null });
   const target = state.combatants[action.targetId];
   if (!target) return [...problems, { message: 'No such target', fix: null }];
   return [...problems, ...targetProblems(ctx, ability, actor, target)];
