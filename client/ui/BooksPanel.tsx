@@ -12,12 +12,13 @@ import {
   importRulebook,
   placeLabels,
   planMap,
+  type TracedMap,
   traceMap,
 } from '@shared/ai';
 import type { HostSession } from '@shared/net';
 import type { GameSystem } from '@shared/system';
-import type { MapData } from '@shared/map';
-import { isPdf, readBookPages, readMapPage } from '../ai/bookText';
+import { MAX_BACKDROP_CHARS, type MapBackdrop, type MapData } from '@shared/map';
+import { isPdf, isPicture, readBookPages, readMapPage, readMapPicture } from '../ai/bookText';
 import { type AiSettings, loadAiSettings, makeProvider, saveAiSettings } from '../ai/providers';
 import { AiSetup } from './AiSetup';
 import { LocalAiGuide, LocalAiNotice } from './LocalAiGuide';
@@ -42,9 +43,40 @@ interface Book {
   readonly areas: readonly BookArea[];
   readonly maps: readonly BookMap[];
   readonly forRules: boolean;
+  /** A map picture (JPG, PNG), not a book: one "page", no text. */
+  readonly picture: boolean;
 }
 
-const bookName = (file: File) => file.name.replace(/\.(pdf|txt|md)$/i, '').replace(/\s*\[[^\]]*\]\s*/g, ' ').trim();
+/**
+ * The part of a page picture a traced map covers, as a compact JPEG laid on
+ * the map's ground (null if it's too big to send to players even when shrunk).
+ */
+function pictureOf(pixels: ImageData, traced: TracedMap): MapBackdrop | null {
+  const page = document.createElement('canvas');
+  page.width = pixels.width;
+  page.height = pixels.height;
+  (page.getContext('2d') as CanvasRenderingContext2D).putImageData(pixels, 0, 0);
+  const across = traced.width * traced.square;
+  const down = traced.height * traced.square;
+  for (const [scale, quality] of [
+    [1, 0.85],
+    [0.75, 0.8],
+    [0.5, 0.75],
+  ] as const) {
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(across * scale));
+    canvas.height = Math.max(1, Math.round(down * scale));
+    const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(page, traced.origin.x, traced.origin.y, across, down, 0, 0, canvas.width, canvas.height);
+    const image = canvas.toDataURL('image/jpeg', quality);
+    if (image.length <= MAX_BACKDROP_CHARS) return { image, width: traced.width, height: traced.height };
+  }
+  return null;
+}
+
+const bookName = (file: File) => file.name.replace(/\.(pdf|txt|md|png|jpe?g|webp|gif)$/i, '').replace(/\s*\[[^\]]*\]\s*/g, ' ').trim();
 
 export function BooksPanel({ session, onUseMap }: { session: HostSession; onUseMap: (map: MapData, scene: string | null) => void }) {
   const [settings, setSettings] = useState<AiSettings>(loadAiSettings);
@@ -57,6 +89,8 @@ export function BooksPanel({ session, onUseMap }: { session: HostSession; onUseM
   /** The text the map was made from: its areas' descriptions (for narration). */
   const [madeFrom, setMadeFrom] = useState<string | null>(null);
   const [other, setOther] = useState({ book: 0, page: 1 });
+  /** The DM's own description of the encounter, used with whatever the page says. */
+  const [described, setDescribed] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const stopper = useRef<AbortController | null>(null);
@@ -78,9 +112,14 @@ export function BooksPanel({ session, onUseMap }: { session: HostSession; onUseM
     for (const file of files) {
       try {
         setReading(`Reading ${file.name}…`);
+        if (isPicture(file)) {
+          // A map picture: listed as a map to make, with nothing to read for rules.
+          setBooks((now) => [...now, { id: nextId.current++, file, name: bookName(file), pages: [''], areas: [], maps: [{ page: 1, areas: [] }], forRules: false, picture: true }]);
+          continue;
+        }
         const pages = await readBookPages(file, (page, total) => setReading(`Reading ${file.name}: page ${page} of ${total}…`));
         const areas = findAreas(pages);
-        const book: Book = { id: nextId.current++, file, name: bookName(file), pages, areas, maps: findMaps(pages, areas), forRules: true };
+        const book: Book = { id: nextId.current++, file, name: bookName(file), pages, areas, maps: findMaps(pages, areas), forRules: true, picture: false };
         setBooks((now) => [...now, book]);
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : String(caught));
@@ -118,21 +157,28 @@ export function BooksPanel({ session, onUseMap }: { session: HostSession; onUseM
     setError(null);
     setMade(null);
     const provider = makeProvider(settings);
-    const text = areas.length > 0 ? areaText(book.pages, book.areas, areas, MAP_TEXT) : (book.pages[page - 1] ?? '');
+    // What's in the encounter: its areas' descriptions, else the page's text, plus the DM's own words.
+    const found = areas.length > 0 ? areaText(book.pages, book.areas, areas, MAP_TEXT) : (book.pages[page - 1] ?? '');
+    const text = [found, described.trim() ? `The game master says: ${described.trim()}` : ''].filter(Boolean).join('\n\n');
     setMadeFrom(text || null);
     try {
-      if (isPdf(book.file)) {
-        setMaking(`Tracing page ${page}…`);
-        const read = await readMapPage(book.file, page);
+      if (isPdf(book.file) || book.picture) {
+        setMaking(book.picture ? `Tracing ${book.name}…` : `Tracing page ${page}…`);
+        const read = book.picture ? await readMapPicture(book.file) : await readMapPage(book.file, page);
         const traced = traceMap(read.pixels);
         if (traced) {
           setMaking('Furnishing it from the book… This can take a minute.');
           const labels = placeLabels(read.words, areas, traced);
           const result = await furnishMap(provider, traced, { labels, text, grid: 'square', signal: controller.signal });
-          setMade({ ...result, name: areas.length > 0 ? areas.map((area) => area.name).join(', ') : result.name });
+          // The page's own art on the ground, lined up with the traced squares.
+          const backdrop = pictureOf(read.pixels, traced);
+          // With the art, the traced walls lie flat under it (the art shows them): they still block the way and the view.
+          const map = backdrop ? { ...result.map, backdrop, tiles: result.map.tiles.map((tile) => (tile.blocked && !tile.object ? { ...tile, height: 0 } : tile)) } : result.map;
+          setMade({ ...result, map, name: areas.length > 0 ? areas.map((area) => area.name).join(', ') : book.picture ? book.name : result.name });
           return;
         }
       }
+      if (book.picture && !text) throw new Error(`No map grid found in ${book.name}: describe the encounter below, and the AI will lay out a map from that`);
       // No grid to trace (an outdoor painting, a text file): the AI lays it out from the text.
       setMaking('No map grid on that page: laying it out from the text… This can take a minute.');
       const grid = session.snapshot().map?.grid;
@@ -147,7 +193,7 @@ export function BooksPanel({ session, onUseMap }: { session: HostSession; onUseM
 
   const ready = settings.model !== '';
   const mapsFound = books.flatMap((book) => book.maps.map((map) => ({ book, map })));
-  const otherBook = books.find((book) => book.id === other.book) ?? books[0];
+  const otherBook = books.find((book) => book.id === other.book && !book.picture) ?? books.find((book) => !book.picture);
 
   return (
     <div className="books-panel">
@@ -165,8 +211,8 @@ export function BooksPanel({ session, onUseMap }: { session: HostSession; onUseM
           for your own games.
         </p>
         <label className="file-button">
-          <span>Add books (PDF or text)</span>
-          <input type="file" multiple accept=".pdf,.txt,.md,application/pdf,text/plain" aria-label="Add books" disabled={busy} onChange={(event) => void addBooks(event)} />
+          <span>Add books or map pictures (PDF, text, JPG, PNG)</span>
+          <input type="file" multiple accept=".pdf,.txt,.md,.png,.jpg,.jpeg,.webp,application/pdf,text/plain,image/png,image/jpeg,image/webp" aria-label="Add books" disabled={busy} onChange={(event) => void addBooks(event)} />
         </label>
         {reading && (
           <p className="muted" role="status">
@@ -181,9 +227,10 @@ export function BooksPanel({ session, onUseMap }: { session: HostSession; onUseM
                   <strong>{book.name}</strong>
                   <span className="muted">
                     {' '}
-                    · {book.pages.length} pages{book.maps.length > 0 ? ` · ${book.maps.length} map${book.maps.length === 1 ? '' : 's'}` : ''}
+                    · {book.picture ? 'map picture' : `${book.pages.length} pages${book.maps.length > 0 ? ` · ${book.maps.length} map${book.maps.length === 1 ? '' : 's'}` : ''}`}
                   </span>
                 </span>
+                {!book.picture && (
                 <label className="check" title="Read this book's rules, monsters, and spells">
                   <input
                     type="checkbox"
@@ -193,6 +240,7 @@ export function BooksPanel({ session, onUseMap }: { session: HostSession; onUseM
                   />
                   <span>Rules</span>
                 </label>
+                )}
                 <button type="button" aria-label={`Remove ${book.name}`} disabled={busy} onClick={() => setBooks((now) => now.filter((entry) => entry.id !== book.id))}>
                   Remove
                 </button>
@@ -240,10 +288,10 @@ export function BooksPanel({ session, onUseMap }: { session: HostSession; onUseM
               {mapsFound.map(({ book, map }) => (
                 <li key={`${book.id}:${map.page}`}>
                   <span className="grow">
-                    <strong>{map.areas.map((area) => `${area.key} ${area.name}`).join(', ')}</strong>
+                    <strong>{book.picture ? book.name : map.areas.map((area) => `${area.key} ${area.name}`).join(', ')}</strong>
                     <span className="muted">
                       {' '}
-                      · {book.name}, page {map.page}
+                      · {book.picture ? 'map picture' : `${book.name}, page ${map.page}`}
                     </span>
                   </span>
                   <button type="button" disabled={busy || !ready} onClick={() => void makeMap(book, map.page, map.areas)}>
@@ -253,11 +301,15 @@ export function BooksPanel({ session, onUseMap }: { session: HostSession; onUseM
               ))}
             </ul>
           )}
+          <label className="books-describe">
+            <span>Describe the encounter (optional: what's there, who, what happens)</span>
+            <textarea rows={2} value={described} maxLength={2000} onChange={(event) => setDescribed(event.target.value)} />
+          </label>
           <div className="row">
             <label>
               <span>Or a page of</span>
               <select value={otherBook?.id ?? ''} onChange={(event) => setOther((now) => ({ ...now, book: Number(event.target.value) }))}>
-                {books.map((book) => (
+                {books.filter((book) => !book.picture).map((book) => (
                   <option key={book.id} value={book.id}>
                     {book.name}
                   </option>

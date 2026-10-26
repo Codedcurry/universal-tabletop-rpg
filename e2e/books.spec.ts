@@ -160,6 +160,8 @@ test('the DM adds books once: their rules are read together and reviewed, and a 
   await expect(result.getByRole('img', { name: /^Preview: a \d+ by \d+ square map$/ })).toBeVisible();
   await result.getByRole('button', { name: 'Use this map' }).click();
   await expect(dm.getByTestId('map-summary')).not.toHaveText(before ?? '');
+  // The book's own art lies on the floor.
+  await expect(dm.getByTestId('world-canvas')).toHaveAttribute('data-backdrop', 'on');
 
   // In the Map tab, Undo brings the old map back.
   await dm.getByRole('tab', { name: 'Map' }).click();
@@ -236,4 +238,47 @@ test('the DM describes an object, their AI makes it, and it is added to the map,
   // Undo takes it away again.
   await dm.getByRole('button', { name: 'Undo' }).click();
   await expect(dm.locator('option[value="makeshift_bed"]')).toHaveCount(0);
+});
+
+/** A battle map picture, as a JPG: a light grid, two walled rooms side by side. */
+async function mapPicture(page: Page) {
+  const dataUrl = await page.evaluate(() => {
+    const square = 30;
+    const canvas = document.createElement('canvas');
+    canvas.width = 20 * square;
+    canvas.height = 14 * square;
+    const ctx = canvas.getContext('2d')!;
+    ctx.fillStyle = '#fdfdfd';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = '#d8d8d8';
+    for (let x = 0; x <= canvas.width; x += square) ctx.strokeRect(x, 0, 0, canvas.height);
+    for (let y = 0; y <= canvas.height; y += square) ctx.strokeRect(0, y, canvas.width, 0);
+    ctx.fillStyle = '#202020';
+    for (const [c0, c1] of [[2, 9], [9, 16]] as const) {
+      for (let c = c0; c <= c1; c++) for (const r of [2, 10]) ctx.fillRect(c * square, r * square, square, square);
+      for (let r = 2; r <= 10; r++) for (const c of [c0, c1]) ctx.fillRect(c * square, r * square, square, square);
+    }
+    return canvas.toDataURL('image/jpeg', 0.92);
+  });
+  return { name: 'cellar map.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(dataUrl.split(',')[1]!, 'base64') };
+}
+
+test('the DM adds a JPG map picture: traced and furnished from their own description', async ({ browser }) => {
+  const dm = await host(browser);
+  const asked: string[] = [];
+  await fakeOllama(dm, asked);
+  await dm.getByRole('tab', { name: 'Books' }).click();
+  const books = dm.getByRole('tabpanel', { name: 'Books' });
+  await books.getByRole('button', { name: 'Check connection' }).click();
+  await expect(books.getByLabel(/^Model/)).toHaveValue('test-model');
+  await books.getByLabel('Add books').setInputFiles(await mapPicture(dm));
+  await expect(books.getByRole('list', { name: 'Books' })).toContainText('cellar map · map picture');
+  await books.getByLabel(/^Describe the encounter/).fill('A wine cellar: a golden idol in the east room, a table in the west.');
+  await books.getByRole('list', { name: 'Maps found' }).getByRole('button', { name: 'Make this map' }).click();
+  const result = books.getByRole('region', { name: 'The map' });
+  await expect(result).toContainText('cellar map');
+  await expect(result).toContainText('Made for this map: Golden idol.');
+  expect(asked.at(-1)).toContain('The map (');
+  await result.getByRole('button', { name: 'Use this map' }).click();
+  await expect(dm.getByTestId('map-summary')).toContainText('square map');
 });

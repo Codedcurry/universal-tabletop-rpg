@@ -101,3 +101,28 @@ export async function readMapPage(file: File, number: number): Promise<MapPage> 
     await loading.destroy();
   }
 }
+
+export const isPicture = (file: File) => /^image\/(png|jpeg|webp|gif)$/.test(file.type) || /\.(png|jpe?g|webp|gif)$/i.test(file.name);
+
+/** A map picture (a JPG or PNG) as a map page: no words on it to place. Big pictures are scaled down. */
+export function readMapPicture(file: File): Promise<MapPage> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const element = new Image();
+    element.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, (PICTURE_SIDE * 1.5) / Math.max(element.naturalWidth, element.naturalHeight));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(element.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(element.naturalHeight * scale));
+      const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
+      ctx.drawImage(element, 0, 0, canvas.width, canvas.height);
+      resolve({ picture: canvas.toDataURL('image/png').split(',')[1] ?? '', pixels: ctx.getImageData(0, 0, canvas.width, canvas.height), words: [] });
+    };
+    element.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error(`${file.name} isn't a picture this browser can show`));
+    };
+    element.src = url;
+  });
+}

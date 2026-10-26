@@ -23,6 +23,8 @@ export const AI_KINDS: readonly { id: AiKind; label: string; baseUrl: string }[]
 ];
 
 const STORAGE_KEY = 'ttrpg.ai';
+/** The longest answer asked for, in tokens (about 3000 words). */
+const MAX_ANSWER_TOKENS = 4096;
 
 export const DEFAULT_AI: AiSettings = { kind: 'ollama', baseUrl: AI_KINDS[0]!.baseUrl, model: '', apiKey: '' };
 
@@ -113,7 +115,8 @@ export function makeProvider(settings: AiSettings): AiProvider {
             messages: messages(request),
             stream: false,
             ...(request.json ? { format: 'json' } : {}),
-            options: { temperature: 0.1, num_ctx: 8192 },
+            // A cap on the answer: a model can get stuck writing forever (a few thousand words is plenty).
+            options: { temperature: 0.1, num_ctx: 8192, num_predict: MAX_ANSWER_TOKENS },
           }),
           ...signal(request),
         })) as { message?: { content?: string } };
@@ -127,7 +130,7 @@ export function makeProvider(settings: AiSettings): AiProvider {
       const data = (await call(settings, '/chat/completions', {
         method: 'POST',
         headers: headers(settings),
-        body: JSON.stringify({ model: settings.model, messages: messages(request), temperature: 0.1 }),
+        body: JSON.stringify({ model: settings.model, messages: messages(request), temperature: 0.1, max_tokens: MAX_ANSWER_TOKENS }),
         ...signal(request),
       })) as { choices?: { message?: { content?: string } }[] };
       return data.choices?.[0]?.message?.content ?? '';

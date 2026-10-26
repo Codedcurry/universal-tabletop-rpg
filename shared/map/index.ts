@@ -42,6 +42,34 @@ export interface MapData {
   readonly walls: readonly WallData[];
   /** Objects made for this map (see objects.ts), placed on its tiles by id. */
   readonly objects?: readonly CustomObject[];
+  /** A picture laid on the ground (a book's map art), on square maps. */
+  readonly backdrop?: MapBackdrop;
+}
+
+/**
+ * A picture laid on the ground, lined up with the tiles: its top-left
+ * corner at tile (0, 0)'s, `width` by `height` tiles across (a book's map
+ * art, traced into this map: the map looks like the book).
+ */
+export interface MapBackdrop {
+  /** A JPEG, PNG, or WebP data URL. */
+  readonly image: string;
+  readonly width: number;
+  readonly height: number;
+}
+
+/** The largest backdrop picture, in characters of its data URL (about 1.2 MB). */
+export const MAX_BACKDROP_CHARS = 1_600_000;
+const BACKDROP_URL = /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
+
+/** What's wrong with a backdrop, if anything. */
+export function backdropProblem(backdrop: unknown, grid: GridKind): string | null {
+  if (typeof backdrop !== 'object' || backdrop === null) return 'is malformed';
+  const { image, width, height } = backdrop as Record<string, unknown>;
+  if (grid !== 'square') return 'only goes on square maps';
+  if (typeof image !== 'string' || image.length > MAX_BACKDROP_CHARS || !BACKDROP_URL.test(image)) return 'must be a JPEG, PNG, or WebP picture under about 1.2 MB';
+  for (const size of [width, height]) if (!Number.isInteger(size) || (size as number) < 1 || (size as number) > 100) return 'must be 1 to 100 tiles across';
+  return null;
 }
 
 export interface Tile {
@@ -149,6 +177,11 @@ export function createWorldMap(data: MapData): WorldMap {
     objectIds.add(object.id);
   }
 
+  if (data.backdrop !== undefined) {
+    const problem = backdropProblem(data.backdrop, data.grid);
+    if (problem) throw new MapError(`The map's picture ${problem}`);
+  }
+
   const walls = new Map<string, [Cell, Cell]>();
   for (const [a, b] of data.walls) {
     if (!sharesEdge(grid, a, b)) {
@@ -182,6 +215,7 @@ export function createWorldMap(data: MapData): WorldMap {
         })),
       walls: [...walls.values()].sort(([a1, a2], [b1, b2]) => compareCells(a1, b1) || compareCells(a2, b2)),
       ...(objects.length > 0 ? { objects: [...objects] } : {}),
+      ...(data.backdrop ? { backdrop: data.backdrop } : {}),
     }),
   };
 }
@@ -198,7 +232,7 @@ const isCell = (value: unknown): value is Cell => isObject(value) && typeof valu
 /** Checks an imported map file and returns it in canonical form, or a reason it can't be used. */
 export function validateMapData(data: unknown): MapValidation {
   if (!isObject(data)) return { ok: false, error: 'This is not a map file' };
-  const { formatVersion, grid, tiles, walls, objects } = data;
+  const { formatVersion, grid, tiles, walls, objects, backdrop } = data;
   if (objects !== undefined && !Array.isArray(objects)) return { ok: false, error: "The map's objects are malformed" };
   if (!Array.isArray(tiles)) return { ok: false, error: 'The map has no tile list' };
   if (!Array.isArray(walls)) return { ok: false, error: 'The map has no wall list' };
@@ -228,6 +262,7 @@ export function validateMapData(data: unknown): MapValidation {
       tiles: tiles as TileData[],
       walls: walls as WallData[],
       ...(Array.isArray(objects) ? { objects: objects as CustomObject[] } : {}),
+      ...(backdrop !== undefined ? { backdrop: backdrop as MapBackdrop } : {}),
     });
     return { ok: true, map: map.toData() };
   } catch (error) {

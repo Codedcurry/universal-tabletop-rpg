@@ -68,3 +68,23 @@ describe('a change of grid', () => {
     expect(undo(recordChange(EMPTY_HISTORY, square, after), after)?.map).toEqual(createWorldMap(square).toData());
   });
 });
+
+describe('a backdrop (a book\'s map art on the ground)', () => {
+  const picture = { image: 'data:image/jpeg;base64,/9j/4AAQSkZJRg==', width: 5, height: 1 };
+
+  it('is kept with a square map, and checked', () => {
+    expect(createWorldMap({ ...map(), backdrop: picture }).toData().backdrop).toEqual(picture);
+    expect(() => createWorldMap({ ...map(), grid: 'hex', backdrop: picture })).toThrow(/only goes on square maps/);
+    expect(() => createWorldMap({ ...map(), backdrop: { ...picture, image: 'https://example.com/a.png' } })).toThrow(/JPEG, PNG, or WebP/);
+    expect(() => createWorldMap({ ...map(), backdrop: { ...picture, width: 0 } })).toThrow(/1 to 100 tiles/);
+  });
+
+  it('travels in patches, and comes and goes with undo', () => {
+    const before = map();
+    const after = createWorldMap({ ...before, backdrop: picture }).toData();
+    expect(diffMaps(before, after).backdrop).toEqual(picture);
+    expect(applyPatch(before, diffMaps(before, after)).backdrop).toEqual(picture);
+    expect(diffMaps(after, before).backdrop).toBeNull();
+    expect(undo(recordChange(EMPTY_HISTORY, before, after), after)?.map).not.toHaveProperty('backdrop');
+  });
+});

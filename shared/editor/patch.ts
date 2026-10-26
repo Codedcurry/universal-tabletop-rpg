@@ -9,6 +9,7 @@ import {
   type WallData,
   createWorldMap,
   type CustomObject,
+  type MapBackdrop,
   objectInfoIn,
   rectangleTiles,
 } from '../map';
@@ -25,6 +26,8 @@ export interface MapPatch {
   readonly removeWalls: readonly WallData[];
   /** The map's own objects, all of them, when they change. */
   readonly objects?: readonly CustomObject[];
+  /** The picture on the ground, when it changes (null: taken away). */
+  readonly backdrop?: MapBackdrop | null;
   /** A whole new map, for a change of grid (square to hex), which tiles can't describe. */
   readonly replace?: MapData;
 }
@@ -38,6 +41,7 @@ export function isEmptyPatch(patch: MapPatch): boolean {
     patch.addWalls.length === 0 &&
     patch.removeWalls.length === 0 &&
     patch.objects === undefined &&
+    patch.backdrop === undefined &&
     patch.replace === undefined
   );
 }
@@ -120,6 +124,7 @@ export function diffMaps(before: MapData, after: MapData): MapPatch {
     addWalls: after.walls.filter((wall) => !beforeWalls.has(wallKey(wall))),
     removeWalls: before.walls.filter((wall) => !afterWalls.has(wallKey(wall))),
     ...(JSON.stringify(before.objects ?? []) === JSON.stringify(after.objects ?? []) ? {} : { objects: after.objects ?? [] }),
+    ...(JSON.stringify(before.backdrop ?? null) === JSON.stringify(after.backdrop ?? null) ? {} : { backdrop: after.backdrop ?? null }),
   };
 }
 
@@ -135,8 +140,15 @@ export function applyPatch(map: MapData, patch: MapPatch): MapData {
   for (const wall of patch.addWalls) walls.set(wallKey(wall), wall);
 
   const objects = patch.objects ?? map.objects ?? [];
-  const { objects: _objects, ...rest } = map;
-  return createWorldMap({ ...rest, tiles: [...tiles.values()], walls: [...walls.values()], ...(objects.length > 0 ? { objects } : {}) }).toData();
+  const backdrop = patch.backdrop === undefined ? map.backdrop : patch.backdrop;
+  const { objects: _objects, backdrop: _backdrop, ...rest } = map;
+  return createWorldMap({
+    ...rest,
+    tiles: [...tiles.values()],
+    walls: [...walls.values()],
+    ...(objects.length > 0 ? { objects } : {}),
+    ...(backdrop ? { backdrop } : {}),
+  }).toData();
 }
 
 function unique(cells: readonly Cell[]): Cell[] {

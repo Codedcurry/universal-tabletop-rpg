@@ -16,7 +16,7 @@ import { Scene } from '@babylonjs/core/scene';
 import '@babylonjs/core/Culling/ray';
 import '@babylonjs/core/Meshes/thinInstanceMesh';
 import { type Cell, type Grid, type WorldPoint, createGrid } from '@shared/grid';
-import { DEFAULT_TERRAIN, type MapData, rayPick } from '@shared/map';
+import { DEFAULT_TERRAIN, type MapBackdrop, type MapData, rayPick } from '@shared/map';
 import type { CameraCommand, CameraView } from '@shared/camera';
 import type { StylePack } from '../style/stylePack';
 import type { CombatEvent, CombatState } from '@shared/combat';
@@ -106,6 +106,8 @@ export class WorldView {
   /** The grid type the camera was last framed for. */
   private framedFor: string | null = null;
   private map: MapData | null = null;
+  /** The backdrop picture's material, kept while the picture is the same. */
+  private backdropLook: { image: string; material: StandardMaterial } | null = null;
   private dirty = true;
   private lastView = '';
   private activeUntil = 0;
@@ -400,13 +402,15 @@ export class WorldView {
     }
     // Textured tile tops: every terrain in the Pixel style, and the DM's own tiles in either style.
     if (this.artStyle === 'pixel' || Object.keys(this.customTiles).length > 0) this.buildTileCaps(map, grid, solidLook);
+    if (map.backdrop && grid.kind === 'square') this.buildBackdrop(map.backdrop);
+    this.canvas.dataset.backdrop = map.backdrop ? 'on' : 'off';
 
     // Other solid tiles get a block on top in their terrain's solid look: a canopy, a boulder, a crag.
     const blocks = new Map<string, Cell[]>();
     for (const tile of map.tiles) {
       const terrain = tile.terrain ?? DEFAULT_TERRAIN;
-      // (A tile with an object shows the object instead.)
-      if (tile.blocked && !tile.object && solidLook(terrain).height > 0) blocks.set(terrain, [...(blocks.get(terrain) ?? []), tile]);
+      // (A tile with an object shows the object instead; on a map with its own art, the art shows the walls.)
+      if (tile.blocked && !tile.object && !map.backdrop && solidLook(terrain).height > 0) blocks.set(terrain, [...(blocks.get(terrain) ?? []), tile]);
     }
     for (const [terrain, cells] of blocks) {
       const look = solidLook(terrain);
@@ -613,6 +617,34 @@ export class WorldView {
    * Pixel art tile tops: a flat cap on each tile with its terrain's texture (one
    * of a few variants, fixed per tile), grouped so a big map stays a few draw calls.
    */
+  /**
+   * A book's map art laid on the ground, lined up with the tiles (its top-left corner at tile
+   * (0, 0)'s), just above the floor: the map looks like the book. Walls still rise through it.
+   */
+  private buildBackdrop(backdrop: MapBackdrop): void {
+    const { cellSize, levelHeight } = this.style;
+    const plane = CreatePlane('backdrop', { width: backdrop.width * cellSize, height: backdrop.height * cellSize }, this.scene);
+    // Lie flat, facing up.
+    plane.bakeTransformIntoVertices(Matrix.RotationX(Math.PI / 2));
+    plane.position.set(((backdrop.width - 1) / 2) * cellSize, levelHeight + 0.008, ((backdrop.height - 1) / 2) * cellSize);
+    // The map is rebuilt on every edit: the picture is decoded once and kept while it's the same.
+    if (this.backdropLook?.image !== backdrop.image) {
+      this.backdropLook?.material.dispose(true, true);
+      const material = new StandardMaterial('backdrop', this.scene);
+      const texture = new Texture(backdrop.image, this.scene, false, false, Texture.TRILINEAR_SAMPLINGMODE);
+      texture.wrapU = Texture.CLAMP_ADDRESSMODE;
+      texture.wrapV = Texture.CLAMP_ADDRESSMODE;
+      material.diffuseTexture = texture;
+      material.specularColor = Color3.Black();
+      material.emissiveColor = new Color3(0.35, 0.35, 0.35);
+      this.backdropLook = { image: backdrop.image, material };
+    }
+    plane.material = this.backdropLook.material;
+    plane.isPickable = false;
+    plane.receiveShadows = true;
+    this.meshes.push(plane);
+  }
+
   private buildTileCaps(map: MapData, grid: Grid, solidLook: (terrain: string) => { height: number }): void {
     const groups = new Map<string, { terrain: string; variant: number; deep: boolean; cells: Cell[] }>();
     for (const tile of map.tiles) {

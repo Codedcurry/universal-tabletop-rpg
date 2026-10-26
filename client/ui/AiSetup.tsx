@@ -27,7 +27,9 @@ export function AiSetup({
     try {
       const found = await listModels(settings);
       setModels(found);
-      if (!settings.model && found[0]) change({ model: found[0] });
+      // A text model first: picture models ("vl", "vision", "llava") are worse at reading rules.
+      const text = found.find((model) => !/vl|vision|llava/i.test(model)) ?? found[0];
+      if (!settings.model && text) change({ model: text });
       setStatus(found.length > 0 ? { ok: true, text: `Connected: ${found.length} model${found.length === 1 ? '' : 's'}` } : { ok: false, text: 'Connected, but it has no models yet: download one first.' });
     } catch (caught) {
       setStatus({ ok: false, text: caught instanceof Error ? caught.message : String(caught) });

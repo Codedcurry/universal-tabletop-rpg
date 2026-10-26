@@ -9,12 +9,34 @@ import { placeholderStyle } from '../style/stylePack';
 export function MapPreview({ map }: { map: MapData }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const tiles = useMemo(() => previewTiles(map), [map]);
-  const width = Math.max(...tiles.map((tile) => tile.x)) + 1;
-  const height = Math.max(...tiles.map((tile) => tile.y)) + 1;
+  const width = Math.max(map.backdrop?.width ?? 0, ...tiles.map((tile) => tile.x + 1));
+  const height = Math.max(map.backdrop?.height ?? 0, ...tiles.map((tile) => tile.y + 1));
   const size = Math.max(4, Math.floor(320 / Math.max(width, height)));
   useEffect(() => {
     const ctx = canvas.current?.getContext('2d');
     if (!ctx) return;
+    const backdrop = map.backdrop;
+    if (backdrop) {
+      // The book's art, with the traced walls shaded over it and objects marked.
+      const picture = new Image();
+      picture.onload = () => {
+        ctx.drawImage(picture, 0, 0, backdrop.width * size, backdrop.height * size);
+        for (const tile of tiles) {
+          if (tile.blocked && !tile.object) {
+            ctx.fillStyle = 'rgba(60, 20, 80, 0.35)';
+            ctx.fillRect(tile.x * size, tile.y * size, size, size);
+          }
+          if (tile.object) {
+            ctx.fillStyle = '#e0b44c';
+            ctx.beginPath();
+            ctx.arc((tile.x + 0.5) * size, (tile.y + 0.5) * size, size * 0.3, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+      };
+      picture.src = backdrop.image;
+      return;
+    }
     for (const tile of tiles) {
       ctx.fillStyle = placeholderStyle.terrain[tile.terrain]?.color ?? '#5f9e4a';
       ctx.fillRect(tile.x * size, tile.y * size, size, size);
@@ -30,7 +52,7 @@ export function MapPreview({ map }: { map: MapData }) {
         ctx.fill();
       }
     }
-  }, [tiles, size]);
+  }, [tiles, size, map.backdrop]);
   return (
     <canvas
       ref={canvas}
