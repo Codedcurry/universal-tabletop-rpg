@@ -69,8 +69,14 @@ test('the DM imports a rulebook PDF with their AI, then checks and applies what 
 
   await dm.getByRole('tab', { name: 'Rules' }).click();
   const rules = dm.getByRole('tabpanel', { name: 'Rules' });
+  // Next to the button: AI features need a local AI model.
+  await expect(rules.getByTestId('ai-notice')).toContainText('AI features need an AI model running on your own computer');
   await rules.getByRole('button', { name: 'Import from a rulebook (AI)' }).click();
   const importer = dm.getByRole('dialog', { name: 'Import a rulebook' });
+  // The notice again, and the guide to running one, open while no model is chosen.
+  await expect(importer.getByRole('note', { name: 'About AI features' })).toContainText('This site doesn\x27t provide one');
+  await expect(importer.getByText('ollama pull qwen2.5:14b')).toBeVisible();
+  await expect(importer.getByText('ollama serve', { exact: true })).toBeVisible();
 
   // Ollama is the default; checking finds its model.
   await importer.getByRole('button', { name: 'Check connection' }).click();
@@ -104,6 +110,7 @@ test('without an AI running, the importer says how to set one up', async ({ brow
   const importer = dm.getByRole('dialog', { name: 'Import a rulebook' });
   await importer.getByRole('button', { name: 'Check connection' }).click();
   await expect(importer.getByRole('status')).toContainText("Couldn't reach Ollama at http://localhost:11434. Is Ollama running?");
+  await expect(importer.getByRole('status')).toContainText('Start it with "ollama serve"');
   await expect(importer.getByRole('status')).toContainText('OLLAMA_ORIGINS');
   // A book that isn't a PDF this browser can read says so.
   await importer.getByLabel('Rulebook file').setInputFiles({ name: 'broken.pdf', mimeType: 'application/pdf', buffer: Buffer.from('not a pdf') });

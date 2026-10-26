@@ -3,6 +3,7 @@ import { describeHouseRule } from '@shared/combat';
 import type { HostSession } from '@shared/net';
 import { type GameSystem, blankSystem, describePath, validateGameSystem } from '@shared/system';
 import { BookImport } from './BookImport';
+import { LocalAiNotice } from './LocalAiGuide';
 import { SystemEditor } from './SystemEditor';
 
 // The DM tools' Rules tab: the game system in play, at a glance; edit it in
@@ -122,6 +123,7 @@ export function RulesPanel({ session }: { session: HostSession }) {
           Import from a rulebook (AI)
         </button>
       </div>
+      <LocalAiNotice />
       <p className="muted small">Rules files hold no art or maps: share your homebrew, or keep a backup. Rules from a book you own are for your own games only.</p>
       {notice && (
         <p className="notice" role="status">

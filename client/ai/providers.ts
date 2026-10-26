@@ -19,7 +19,7 @@ export interface AiSettings {
 export const AI_KINDS: readonly { id: AiKind; label: string; baseUrl: string }[] = [
   { id: 'ollama', label: 'Ollama, on this computer', baseUrl: 'http://localhost:11434' },
   { id: 'lmstudio', label: 'LM Studio, on this computer', baseUrl: 'http://localhost:1234/v1' },
-  { id: 'openai', label: 'Another service (OpenAI-compatible, your own key)', baseUrl: 'https://api.groq.com/openai/v1' },
+  { id: 'openai', label: 'Advanced: a cloud service with your own key (not local: your text goes to it)', baseUrl: 'https://api.groq.com/openai/v1' },
 ];
 
 const STORAGE_KEY = 'ttrpg.ai';
@@ -52,7 +52,7 @@ function unreachable(settings: AiSettings, error: unknown): Error {
   const name = AI_KINDS.find((kind) => kind.id === settings.kind)?.label.split(',')[0] ?? 'The AI';
   const fix =
     settings.kind === 'ollama'
-      ? `Is Ollama running? It must also allow this site: set OLLAMA_ORIGINS to ${location.origin} and restart it.`
+      ? `Is Ollama running? Start it with "ollama serve" in a terminal (or open the Ollama app). It must also allow this site: set OLLAMA_ORIGINS to ${location.origin} and restart it. See "How to run a local AI model" above.`
       : settings.kind === 'lmstudio'
         ? 'Is LM Studio\'s server running, with "Enable CORS" on?'
         : 'Check the address and your key.';

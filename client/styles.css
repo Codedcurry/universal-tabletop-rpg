@@ -1746,3 +1746,17 @@ button.danger {
   width: 100%;
   height: 14px;
 }
+/* The notice every AI feature shows, and the local AI guide. */
+.ai-notice {
+  border-left: 3px solid var(--accent);
+  padding: 6px 10px;
+  margin: 8px 0;
+  background: rgba(224, 180, 76, 0.08);
+}
+.ai-steps li {
+  margin: 6px 0;
+}
+.ai-steps code,
+.ai-guide code {
+  user-select: all;
+}

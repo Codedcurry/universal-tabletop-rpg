@@ -2,6 +2,7 @@ import { type ChangeEvent, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { type ImportProgress, type ImportResult, importRulebook } from '@shared/ai';
 import { readBookPages } from '../ai/bookText';
+import { LocalAiGuide } from './LocalAiGuide';
 import { AI_KINDS, type AiKind, type AiSettings, listModels, loadAiSettings, makeProvider, saveAiSettings } from '../ai/providers';
 
 // Importing a rulebook the DM owns with their own AI: set up the AI (Ollama
@@ -92,9 +93,10 @@ export function BookImport({ onDone, onCancel }: { onDone: (result: ImportResult
             ×
           </button>
         </div>
+        <LocalAiGuide open={!settings.model} />
         <p className="muted">
-          For a book you own. Its text goes only to the AI you choose here, a section at a time, and the result stays in your game. AI makes mistakes: what it finds
-          opens in the rules editor for you to check before it&apos;s used.
+          For a book you own. Its text goes only to your AI, a section at a time, and the result stays in your game. AI makes mistakes: what it finds opens in
+          the rules editor for you to check before it&apos;s used.
         </p>
 
         <fieldset className="panel" disabled={reading}>
@@ -126,7 +128,7 @@ export function BookImport({ onDone, onCancel }: { onDone: (result: ImportResult
           <div className="row">
             <label className="grow">
               <span>Model</span>
-              <input list="ai-models" value={settings.model} placeholder="e.g. llama3.1" onChange={(event) => change({ model: event.target.value })} />
+              <input list="ai-models" value={settings.model} placeholder="e.g. qwen2.5:14b" onChange={(event) => change({ model: event.target.value })} />
               <datalist id="ai-models">
                 {models.map((model) => (
                   <option key={model} value={model} />
@@ -147,20 +149,6 @@ export function BookImport({ onDone, onCancel }: { onDone: (result: ImportResult
             <p className={status.ok ? 'muted' : 'field-error'} role="status">
               {status.text}
             </p>
-          )}
-          {settings.kind === 'ollama' && (
-            <details className="small">
-              <summary>Setting up Ollama (free, runs on your computer)</summary>
-              <ol>
-                <li>Install it from ollama.com.</li>
-                <li>
-                  Download a model: in a terminal, <code>ollama pull llama3.1</code> (or another; bigger ones read rules better).
-                </li>
-                <li>
-                  Let this site talk to it: set the environment variable <code>OLLAMA_ORIGINS</code> to <code>{location.origin}</code>, then restart Ollama.
-                </li>
-              </ol>
-            </details>
           )}
         </fieldset>
 
