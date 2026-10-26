@@ -19,12 +19,14 @@ import { type Cell, type Grid, type WorldPoint, createGrid } from '@shared/grid'
 import { DEFAULT_TERRAIN, type MapBackdrop, type MapData, rayPick } from '@shared/map';
 import type { CameraCommand, CameraView } from '@shared/camera';
 import type { StylePack } from '../style/stylePack';
+import { packColor } from '../style/stylePacks';
 import type { CombatEvent, CombatState } from '@shared/combat';
 import type { GameSystem } from '@shared/system';
 import { type AnimationSpeed, type Timeline, timingFor } from '@shared/anim';
 import { type GraphicsQuality, SlowFrameDetector, effectsFor } from '@shared/graphics';
 import { PIXEL_TILE_SIZE, PIXEL_TILE_VARIANTS, pixelTile, tileSideColor } from '@shared/style/pixelTiles';
 import type { CharacterArt } from '@shared/style/art';
+import type { FloatStyle } from '@shared/style/floats';
 import { CameraRig } from './CameraRig';
 import { SceneEffects } from './SceneEffects';
 import { buildObjectMeshes, cellSeed } from './objectMeshes';
@@ -107,6 +109,9 @@ export class WorldView {
   private framedFor: string | null = null;
   private map: MapData | null = null;
   /** The backdrop picture's material, kept while the picture is the same. */
+  /** The fog last shown, to draw again in a new pack's colours. */
+  private fog: { readonly visible: ReadonlySet<string>; readonly explored: ReadonlySet<string> } | null = null;
+  private fogHidden: ReadonlySet<string> = new Set();
   private backdropLook: { image: string; material: StandardMaterial } | null = null;
   private dirty = true;
   private lastView = '';
@@ -117,7 +122,7 @@ export class WorldView {
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
-    private readonly style: StylePack,
+    private style: StylePack,
     private readonly onPointer: (pointer: TilePointer) => void,
   ) {
     // Babylon focuses the canvas on every press, and the browser then scrolls
@@ -131,6 +136,7 @@ export class WorldView {
     // Babylon's default left-handed space showed every map mirrored.
     this.scene.useRightHandedSystem = true;
     this.scene.clearColor = Color4.FromHexString(`${style.background}ff`);
+    canvas.dataset.look = style.id;
 
     this.rig = new CameraRig(this.scene, canvas);
     this.rig.setGroundLevel(style.levelHeight); // the top of a level-0 tile
@@ -381,7 +387,7 @@ export class WorldView {
       const deep = solid !== null && solid.height === 0;
       // Pixel art: the column is the terrain's side color (its textured top is a cap, below).
       const color = this.artStyle === 'pixel'
-        ? toHex(tileSideColor(terrain), deep ? 0.75 : 1)
+        ? toHex(packColor(this.style, tileSideColor(terrain)), deep ? 0.75 : 1)
         : deep
           ? (solid as { color: string }).color
           : (this.style.terrain[terrain] ?? this.style.unknownTerrain).color;
@@ -495,6 +501,8 @@ export class WorldView {
    * aren't drawn. Null shows everything (no fog, or the DM).
    */
   setFog(fog: { readonly visible: ReadonlySet<string>; readonly explored: ReadonlySet<string> } | null, hiddenTokens: ReadonlySet<string>): void {
+    this.fog = fog;
+    this.fogHidden = hiddenTokens;
     this.fogDark?.dispose();
     this.fogDim?.dispose();
     this.fogDark = null;
@@ -683,7 +691,7 @@ export class WorldView {
   /** A crisp (unsmoothed) pixel art texture for one terrain variant; deep water a shade darker. */
   private capMaterial(terrain: string, variant: number, deep: boolean): StandardMaterial {
     const custom = this.customTiles[terrain];
-    const key = custom ? `cap-custom-${terrain}-${deep}-${custom}` : `cap-${terrain}-${variant}-${deep}`;
+    const key = custom ? `cap-custom-${terrain}-${deep}-${custom}` : `cap-${this.style.id}-${terrain}-${variant}-${deep}`;
     let material = this.materials.get(key);
     if (!material) {
       let texture: Texture;
@@ -694,7 +702,17 @@ export class WorldView {
       } else {
         const drawn = new DynamicTexture(key, { width: PIXEL_TILE_SIZE, height: PIXEL_TILE_SIZE }, this.scene, false, Texture.NEAREST_SAMPLINGMODE);
         const ctx = drawn.getContext() as unknown as CanvasRenderingContext2D;
-        ctx.putImageData(new ImageData(pixelTile(terrain, variant), PIXEL_TILE_SIZE, PIXEL_TILE_SIZE), 0, 0);
+        const pixels = pixelTile(terrain, variant);
+        const shift = this.style.shift;
+        if (shift) {
+          for (let at = 0; at < pixels.length; at += 4) {
+            const [r, g, b] = shift([pixels[at] as number, pixels[at + 1] as number, pixels[at + 2] as number]);
+            pixels[at] = r;
+            pixels[at + 1] = g;
+            pixels[at + 2] = b;
+          }
+        }
+        ctx.putImageData(new ImageData(pixels, PIXEL_TILE_SIZE, PIXEL_TILE_SIZE), 0, 0);
         drawn.update();
         texture = drawn;
       }
@@ -711,6 +729,11 @@ export class WorldView {
   }
 
   /** The DM's character art: creatures with art are drawn from their sprite sheets. */
+  /** How the numbers floating over creatures look (the DM's choice for the table). */
+  setFloatStyle(style: FloatStyle): void {
+    this.tokens.setFloatStyle(style);
+  }
+
   setCharacterArt(characters: Readonly<Record<string, CharacterArt>>): void {
     this.tokens.setCharacterArt(characters);
     this.markActive();
@@ -735,6 +758,16 @@ export class WorldView {
       this.framedFor = framed;
       this.needsFraming = false;
     }
+  }
+
+  /** Draws the world in another style pack (the DM's choice for the table). Packs share sizes, so creatures stay put. */
+  setStyle(style: StylePack): void {
+    if (style.id === this.style.id) return;
+    this.style = style;
+    this.canvas.dataset.look = style.id;
+    this.scene.clearColor = Color4.FromHexString(`${style.background}ff`);
+    this.rebuildMap();
+    this.setFog(this.fog, this.fogHidden);
   }
 
   /** Pixel art tiles or plain colors (the viewer's Art style setting). */

@@ -1,4 +1,5 @@
 import { CLIPS } from '../anim';
+import { type FloatStyle, floatStyleProblem } from './floats';
 import type { FramePicks } from './frames';
 import { MAX_FPS, MIN_FPS, type SheetLayout } from './sheet';
 
@@ -31,6 +32,10 @@ export interface CustomArt {
   readonly tiles: Readonly<Record<string, ImageAsset>>;
   /** Characters' sprite sheets, by art key (a monster kind like "goblin", or one creature's id). */
   readonly characters: Readonly<Record<string, CharacterArt>>;
+  /** How floating numbers look (the usual, if not set). */
+  readonly floats?: FloatStyle;
+  /** The style pack the world is drawn in, by id (the usual, if not set or unknown here). */
+  readonly look?: string;
 }
 
 export interface CharacterArt {
@@ -85,6 +90,18 @@ export function withCharacter(art: CustomArt, key: string, character: CharacterA
   return { ...art, characters };
 }
 
+/** The art with floating numbers styled so (or back to the usual, with null). */
+export function withFloats(art: CustomArt, floats: FloatStyle | null): CustomArt {
+  const { floats: _old, ...rest } = art;
+  return floats ? { ...rest, floats } : rest;
+}
+
+/** The art drawn in a style pack (or the usual, with null). */
+export function withLook(art: CustomArt, look: string | null): CustomArt {
+  const { look: _old, ...rest } = art;
+  return look ? { ...rest, look } : rest;
+}
+
 /** The art with a terrain's tile texture set (or removed, with null). */
 export function withTile(art: CustomArt, terrain: string, image: ImageAsset | null): CustomArt {
   const tiles = { ...art.tiles };
@@ -133,6 +150,11 @@ export function validateCustomArt(data: unknown): ArtValidation {
     const problem = imageProblem(character.image) ?? (character.token === null ? null : imageProblem(character.token)) ?? layoutProblem(character.layout, character.image as ImageAsset);
     if (problem) return { ok: false, error: `The art for ${key}: ${problem}` };
   }
+  if (data.floats !== undefined) {
+    const problem = floatStyleProblem(data.floats);
+    if (problem) return { ok: false, error: `The number style ${problem}` };
+  }
+  if (data.look !== undefined && (typeof data.look !== 'string' || !ID_PATTERN.test(data.look) || data.look.length > 30)) return { ok: false, error: 'The style pack is not one this app knows' };
   return { ok: true, art: { ...(data as unknown as CustomArt), characters: characters as CustomArt['characters'] } };
 }
 

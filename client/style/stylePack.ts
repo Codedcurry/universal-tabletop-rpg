@@ -59,6 +59,8 @@ export interface StylePack {
   /** Models for objects on tiles, by object id. */
   readonly objects: Readonly<Record<string, ObjectModel>>;
   readonly unknownObject: ObjectModel;
+  /** How the pack recolours drawn art (the pixel tiles), if it does. */
+  readonly shift?: (rgb: readonly [number, number, number]) => readonly [number, number, number];
 }
 
 /** Terrain ids the editor offers; packs should define a look for each. */
@@ -66,7 +68,7 @@ export const TERRAINS = ['grass', 'dirt', 'sand', 'stone', 'water', 'snow', 'woo
 
 export const placeholderStyle: StylePack = {
   id: 'placeholder',
-  name: 'Placeholder colors',
+  name: 'Classic',
   background: '#14121c',
   cellSize: 1,
   levelHeight: 0.5,

@@ -108,6 +108,30 @@ test('a player moves by clicking a highlighted tile, and everyone sees it', asyn
   await expect(ana.getByTestId('movement-left')).not.toHaveText('6 moves left');
 });
 
+test('the DM styles the floating numbers; players see them in that style', async ({ browser }) => {
+  const { dm, ana } = await fight(browser);
+  await dm.getByRole('tab', { name: 'Art' }).click();
+  await dm.getByRole('tab', { name: 'Numbers' }).click();
+  const numbers = dm.getByRole('tabpanel', { name: 'Numbers' });
+  const use = numbers.getByRole('button', { name: 'Use for everyone' });
+  await expect(use).toBeDisabled();
+  await numbers.getByRole('group', { name: 'Presets' }).getByRole('button', { name: 'Comic' }).click();
+  await expect(numbers.getByTestId('numbers-preview').getByText('-12')).toHaveCSS('font-size', '30px');
+  await numbers.getByLabel('Motion').selectOption('shake');
+  await use.click();
+  await expect(use).toBeDisabled();
+
+  await untilAnasTurn(dm, ana);
+  const bar = ana.getByRole('region', { name: 'Your turn' });
+  await bar.getByRole('button', { name: 'Shoot' }).click();
+  await ana.getByRole('button', { name: /^Target Goblin/ }).first().click();
+  for (const page of [ana, dm]) {
+    const float = page.getByTestId('float-text').first();
+    await expect(float).toHaveText(/^(-\d+|Miss|0)$/);
+    await expect(float).toHaveCSS('font-family', /Comic/);
+  }
+});
+
 test('attacking: pick an ability, then a target; damage numbers float up and HP bars drop', async ({ browser }) => {
   const { dm, ana } = await fight(browser);
   await untilAnasTurn(dm, ana);

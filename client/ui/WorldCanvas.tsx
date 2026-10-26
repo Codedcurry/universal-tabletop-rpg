@@ -8,6 +8,8 @@ import type { Cell } from '@shared/grid';
 import type { MapData, WorldMap } from '@shared/map';
 import { type HighlightKind, type TilePointer, WorldView } from '../render/WorldView';
 import { placeholderStyle } from '../style/stylePack';
+import { stylePackFor } from '../style/stylePacks';
+import { DEFAULT_FLOAT_STYLE } from '@shared/style/floats';
 import { combatSounds } from '@shared/audio';
 import { sounds } from '../audio/soundEngine';
 import { DisplaySettingsMenu } from './DisplaySettingsMenu';
@@ -108,8 +110,11 @@ export function WorldCanvas(props: Props) {
   const customTiles = useMemo(() => Object.fromEntries(Object.entries(art.tiles).map(([terrain, image]) => [terrain, image.dataUrl])), [art]);
   useEffect(() => viewRef.current?.setCustomTiles(customTiles), [customTiles]);
   useEffect(() => viewRef.current?.setCharacterArt(art.characters), [art.characters]);
+  // The DM's style pack and number style, for the whole table.
+  useEffect(() => viewRef.current?.setStyle(stylePackFor(art.look)), [art.look]);
+  useEffect(() => viewRef.current?.setFloatStyle(art.floats ?? DEFAULT_FLOAT_STYLE), [art.floats]);
   // Changes when the map is rebuilt in a new look, which clears the overlays drawn over it.
-  const look = useMemo(() => `${artStyle}|${JSON.stringify(customTiles)}`, [artStyle, customTiles]);
+  const look = useMemo(() => `${artStyle}|${art.look ?? ''}|${JSON.stringify(customTiles)}`, [artStyle, art.look, customTiles]);
 
   // When frames stay slow, step the graphics down and say so. Once someone raises
   // them again by hand after that, they know best: no more automatic changes.

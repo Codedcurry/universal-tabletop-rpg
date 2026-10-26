@@ -1453,17 +1453,79 @@ button.danger {
 /* Art tab: Tiles | Characters. */
 .art-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   margin-bottom: 12px;
 }
 .art-tabs > [role='tab'] {
-  flex: 1;
+  flex: 1 1 40%;
   min-height: 40px;
 }
 .art-tabs > [role='tab'][aria-selected='true'] {
   background: var(--accent);
   border-color: var(--accent);
   color: #1a1400;
+}
+/* World look: a button per style pack, with chips of its colours. */
+.look-packs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+}
+.look-pack {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 8px;
+}
+.look-pack[aria-checked='true'] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.look-chips {
+  display: flex;
+  gap: 3px;
+  padding: 6px;
+  border-radius: 6px;
+}
+.look-chips > span {
+  flex: 1;
+  height: 22px;
+  border-radius: 3px;
+}
+/* Numbers: sample floating numbers moving as they will in play. */
+.numbers-preview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  justify-items: center;
+  align-items: end;
+  gap: 8px;
+  min-height: 110px;
+  margin: 12px 0;
+  padding: 16px 8px 12px;
+  border-radius: 8px;
+  background: linear-gradient(#2a3a2a, #1a2418);
+  overflow: hidden;
+}
+.numbers-sample {
+  display: flex;
+  align-items: flex-end;
+  height: 72px;
+}
+.numbers-sample > span {
+  display: inline-block;
+  white-space: nowrap;
+}
+.number-colors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+.number-colors input[type='color'] {
+  width: 48px;
+  height: 32px;
+  padding: 0;
 }
 /* The frame picker: a window over everything, with the sheet and a clickable box on each sprite. */
 .picker-backdrop {

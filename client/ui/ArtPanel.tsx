@@ -4,8 +4,10 @@ import { type ImageAsset, MAX_IMAGE_CHARS, MAX_IMAGE_SIDE, tileWarnings } from '
 import { PIXEL_TILE_SIZE, pixelTile } from '@shared/style/pixelTiles';
 import { TERRAINS } from '../style/stylePack';
 import { type ArtTarget, CharacterImport } from './CharacterImport';
+import { NumberStyle, WorldLook } from './LookPanels';
 
-// The DM tools' Art tab: the game's own art, in two parts. Tiles: each
+// The DM tools' Art tab: the game's own art. World look: the style pack the
+// map is drawn in. Numbers: how floating numbers look. Tiles: each
 // terrain shows its tile (the DM's image, or the pack's pixel art);
 // importing an image shows a crisp preview and any size warnings before
 // it's used. Characters: sprite sheets for monsters and creatures. The art
@@ -15,6 +17,8 @@ import { type ArtTarget, CharacterImport } from './CharacterImport';
 const SECTIONS = [
   ['tiles', 'Tiles'],
   ['characters', 'Characters'],
+  ['look', 'World look'],
+  ['numbers', 'Numbers'],
 ] as const;
 
 interface Pending {
@@ -56,7 +60,7 @@ export function ArtPanel({ session }: { session: HostSession }) {
     ...(system?.monsters ?? []).map((monster) => ({ key: monster.id, label: `${monster.name} (every ${monster.name.toLowerCase()})`, name: monster.name })),
     ...Object.entries(combat?.combatants ?? {}).map(([id, combatant]) => ({ key: id, label: `${combatant.sheet.name} (only this one)`, name: combatant.sheet.name })),
   ];
-  const [section, setSection] = useState<'tiles' | 'characters'>('tiles');
+  const [section, setSection] = useState<(typeof SECTIONS)[number][0]>('tiles');
   const [pending, setPending] = useState<Pending | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -155,6 +159,15 @@ export function ArtPanel({ session }: { session: HostSession }) {
 
       <div role="tabpanel" aria-label="Characters" hidden={section !== 'characters'}>
         <CharacterImport session={session} targets={targets} />
+      </div>
+
+      <div role="tabpanel" aria-label="World look" hidden={section !== 'look'}>
+        <p className="muted">Recolour the whole world: ground, rocks, water, trees, and objects. Everyone in the game sees it; the map stays the same.</p>
+        <WorldLook session={session} art={art} />
+      </div>
+
+      <div role="tabpanel" aria-label="Numbers" hidden={section !== 'numbers'}>
+        {section === 'numbers' && <NumberStyle session={session} art={art} />}
       </div>
     </div>
   );

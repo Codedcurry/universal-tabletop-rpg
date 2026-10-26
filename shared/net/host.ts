@@ -28,7 +28,8 @@ import {
 import { DiceNotationError, RollReplayError, type RollResult, replayRoll, roll } from '../dice';
 import { type Cell, cellKey } from '../grid';
 import { SAVED_GAME_FORMAT, SAVED_GAME_VERSION, type SavedGame } from './saved';
-import { type CharacterArt, type CharacterSource, EMPTY_ART, type ImageAsset, sourceProblem, validateCustomArt, withCharacter, withTile } from '../style/art';
+import { type CharacterArt, type CharacterSource, EMPTY_ART, type ImageAsset, sourceProblem, validateCustomArt, withCharacter, withFloats, withLook, withTile } from '../style/art';
+import type { FloatStyle } from '../style/floats';
 import { type MapPatch, applyPatch, isEmptyPatch } from '../editor';
 import { type MapData, type WorldMap, createWorldMap } from '../map';
 import type { RandomSource } from '../random';
@@ -320,6 +321,22 @@ export class HostSession {
   /** Sets (or, with null, removes) the DM's own texture for a terrain's tiles. Throws if the image won't do. */
   setTileArt(terrain: string, image: ImageAsset | null): void {
     const art = withTile(this.state.art, terrain, image);
+    const checked = validateCustomArt(art);
+    if (!checked.ok) throw new Error(checked.error);
+    this.publish({ kind: 'art', art });
+  }
+
+  /** Styles the numbers that float over creatures, for everyone (or back to the usual, with null). Throws if the style won't do. */
+  setFloatStyle(floats: FloatStyle | null): void {
+    const art = withFloats(this.state.art, floats);
+    const checked = validateCustomArt(art);
+    if (!checked.ok) throw new Error(checked.error);
+    this.publish({ kind: 'art', art });
+  }
+
+  /** Draws the world in a style pack, for everyone (or the usual, with null). */
+  setLook(look: string | null): void {
+    const art = withLook(this.state.art, look);
     const checked = validateCustomArt(art);
     if (!checked.ok) throw new Error(checked.error);
     this.publish({ kind: 'art', art });

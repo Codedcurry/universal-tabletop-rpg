@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { type CombatAction, setupFromMonster } from '../combat';
+import { FLOAT_PRESETS, type FloatStyle } from '../style/floats';
 import { applyEdit, diffMaps } from '../editor';
 import { createWorldMap, rectangleTiles, type MapData } from '../map';
 import type { CreatureSheet } from '../system';
@@ -833,6 +834,23 @@ describe('custom art', () => {
     network.host.setTileArt('grass', null);
     network.flush();
     expect(ana.session.state?.art.tiles).toEqual({});
+  });
+
+  it('sends the DM\'s number style and world look to every player', () => {
+    const network = createTestNetwork();
+    const ana = network.join('Ana');
+    network.host.setFloatStyle(FLOAT_PRESETS.comic as FloatStyle);
+    network.host.setLook('winter');
+    network.flush();
+    expect(ana.session.state?.art.floats?.font).toBe('comic');
+    expect(ana.session.state?.art.look).toBe('winter');
+    network.host.setFloatStyle(null);
+    network.host.setLook(null);
+    network.flush();
+    expect(ana.session.state?.art.floats).toBeUndefined();
+    expect(ana.session.state?.art.look).toBeUndefined();
+    expect(() => network.host.setFloatStyle({ ...(FLOAT_PRESETS.comic as FloatStyle), size: 9 })).toThrow(/size/);
+    expect(() => network.host.setLook('Not A Pack!')).toThrow(/style pack/);
   });
 
   it('refuses images that are not images, or too big', () => {

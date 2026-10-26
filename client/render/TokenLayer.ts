@@ -35,6 +35,8 @@ import {
   teamColor,
 } from '../style/placeholderSprites';
 import type { StylePack } from '../style/stylePack';
+import { DEFAULT_FLOAT_STYLE, type FloatStyle, floatMotion } from '@shared/style/floats';
+import { styleFloat } from '../style/floatLook';
 import type { CharacterArt } from '@shared/style/art';
 import { artKeyFor, frameAt } from '@shared/style/sheet';
 import type { SceneEffects } from './SceneEffects';
@@ -101,6 +103,7 @@ export class TokenLayer {
   private readonly tokens = new Map<string, Token>();
   private readonly textures = new Map<string, DynamicTexture>();
   private readonly floaters: Floater[] = [];
+  private floatStyle: FloatStyle = DEFAULT_FLOAT_STYLE;
   private readonly activeRing: Mesh;
   private grid: Grid | null = null;
   private heights = new Map<string, number>();
@@ -326,8 +329,9 @@ export class TokenLayer {
       animating = true;
       const anchor = Vector3.Project(token.home.add(new Vector3(0, SPRITE_H, 0)), Matrix.Identity(), transform, screen);
       floater.element.style.display = '';
-      floater.element.style.opacity = String(age < 0.7 ? 1 : 1 - (age - 0.7) / 0.3);
-      floater.element.style.transform = `translate(${anchor.x}px, ${anchor.y - 50 * age}px) translate(-50%, -100%)`;
+      const move = floatMotion(this.floatStyle.motion, age);
+      floater.element.style.opacity = String(move.opacity);
+      floater.element.style.transform = `translate(${anchor.x + move.dx}px, ${anchor.y + move.dy}px) translate(-50%, -100%) scale(${move.scale})`;
     }
     return animating;
   }
@@ -398,6 +402,11 @@ export class TokenLayer {
   }
 
   /** The DM's character art, by art key; creatures use their own or their kind's. */
+  /** How floating numbers look (the DM's choice for the table), from the next one on. */
+  setFloatStyle(style: FloatStyle): void {
+    this.floatStyle = style;
+  }
+
   setCharacterArt(characters: Readonly<Record<string, CharacterArt>>): void {
     this.characterArt = characters;
     for (const token of this.tokens.values()) this.applyArt(token);
@@ -579,6 +588,7 @@ export class TokenLayer {
     element.className = `float-text ${text.kind}`;
     element.dataset.testid = 'float-text';
     element.textContent = text.text;
+    styleFloat(element, this.floatStyle, text.kind);
     element.style.display = 'none';
     this.overlay.append(element);
     this.floaters.push({ element, tokenId: text.combatantId, at: now + text.start });

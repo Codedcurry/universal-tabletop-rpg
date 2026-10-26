@@ -72,6 +72,20 @@ test('the DM imports a tile texture, previews it, and every player sees it', asy
   await expect(ana.getByTestId('world-canvas')).toHaveAttribute('data-custom-tiles', '');
 });
 
+test('the DM picks a world look, and every player sees the world in it', async ({ browser }) => {
+  const { dm, ana } = await table(browser);
+  await expect(ana.getByTestId('world-canvas')).toHaveAttribute('data-look', 'placeholder');
+  await dm.getByRole('tab', { name: 'Art' }).click();
+  await dm.getByRole('tab', { name: 'World look' }).click();
+  const looks = dm.getByRole('radiogroup', { name: 'World look' });
+  await expect(looks.getByRole('radio', { name: 'Classic' })).toHaveAttribute('aria-checked', 'true');
+  await looks.getByRole('radio', { name: 'Winter' }).click();
+  await expect(looks.getByRole('radio', { name: 'Winter' })).toHaveAttribute('aria-checked', 'true');
+  for (const page of [dm, ana]) await expect(page.getByTestId('world-canvas')).toHaveAttribute('data-look', 'winter');
+  await looks.getByRole('radio', { name: 'Classic' }).click();
+  await expect(ana.getByTestId('world-canvas')).toHaveAttribute('data-look', 'placeholder');
+});
+
 /** A sprite sheet drawn in the page: 32-pixel frames, 2 across; idle (red) and walk (blue), 4 rows each. */
 async function spriteSheet(page: Page) {
   const dataUrl = await page.evaluate(() => {
