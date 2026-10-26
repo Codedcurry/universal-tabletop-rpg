@@ -1009,7 +1009,7 @@ button[aria-expanded='true'] {
 }
 .dm-tabs {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
   gap: 4px;
   margin-bottom: 12px;
 }
@@ -1627,4 +1627,80 @@ button.danger {
   width: 56px;
   height: 40px;
   padding: 2px;
+}
+/* The rules editor. */
+.rules-editor h4 {
+  margin: 16px 0 4px;
+}
+.rules-editor h5 {
+  margin: 12px 0 4px;
+}
+.rules-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 120px;
+}
+.rules-field.grow {
+  flex: 1 1 200px;
+}
+.rules-editor input.formula {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.rules-row {
+  align-items: flex-end;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.rules-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin: 8px 0;
+  background: var(--surface-2);
+}
+.rules-card summary {
+  cursor: pointer;
+  font-weight: 600;
+  min-height: 32px;
+  display: list-item;
+}
+.rules-count {
+  color: var(--danger);
+  font-weight: 600;
+}
+.rules-problems {
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin: 8px 0;
+}
+.rules-problems ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+.rules-problems button.link {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  text-decoration: underline;
+}
+.rules-abilities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin: 8px 0;
+}
+.rules-actions {
+  position: sticky;
+  bottom: -16px;
+  padding: 12px 0;
+  background: var(--surface);
+}
+[aria-selected='true'] > .rules-count {
+  color: #7a1010;
 }

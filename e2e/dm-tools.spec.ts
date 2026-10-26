@@ -77,7 +77,7 @@ async function addAndPlace(page: Page, kind: string, fx: number) {
 
 test('the DM tools are grouped in tabs, and can be hidden', async ({ browser }) => {
   const { dm } = await table(browser);
-  await expect(tools(dm).getByRole('tab')).toHaveText(['Encounter', 'Map', 'Art', 'Session']);
+  await expect(tools(dm).getByRole('tab')).toHaveText(['Encounter', 'Map', 'Rules', 'Art', 'Session']);
 
   // Map-making controls live only on the Map tab.
   await dm.getByRole('tab', { name: 'Map' }).click();

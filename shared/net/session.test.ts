@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { CombatAction } from '../combat';
+import { type CombatAction, setupFromMonster } from '../combat';
 import { applyEdit, diffMaps } from '../editor';
 import { createWorldMap, rectangleTiles, type MapData } from '../map';
 import type { CreatureSheet } from '../system';
@@ -112,12 +112,42 @@ describe('joining', () => {
     expect(ana.session.canControl('goblin')).toBe(false);
   });
 
-  it("rejects a character that doesn't fit the game system", () => {
+  it("fits a character to the game system, dropping what the system doesn't have", () => {
     const network = createTestNetwork();
     network.host.setSystem(skirmish);
-    const ana = network.join('Ana', { character: { ...anaSheet, abilities: ['fireball'] } });
-    expect(ana.session.status).toBe('rejected');
-    expect(ana.session.rejectionReason).toMatch(/fireball/);
+    const ana = network.join('Ana', { character: { ...anaSheet, stats: { ...anaSheet.stats, luck: 3 }, abilities: ['fireball', 'strike'] } });
+    expect(ana.session.status).toBe('connected');
+    const setup = network.host.playerSetup('p1', { q: 0, r: 0 });
+    expect(setup.sheet.abilities).toEqual(['strike']);
+    expect(setup.sheet.stats).not.toHaveProperty('luck');
+  });
+
+  it('gives a character left with no abilities the system\'s first, so it can still act', () => {
+    const network = createTestNetwork();
+    network.host.setSystem(skirmish);
+    network.join('Ana', { character: { ...anaSheet, abilities: ['fireball'] } });
+    expect(network.host.playerSetup('p1', { q: 0, r: 0 }).sheet.abilities).toEqual(['strike']);
+  });
+
+  it('fits creatures in play when the rules change, and logs what changed', () => {
+    const network = createTestNetwork({ dmTitle: 'Keeper' });
+    const ana = network.join('Ana', { character: anaSheet });
+    network.host.setSystem(skirmish);
+    network.host.setMap(map);
+    network.host.addCreature(setupFromMonster(skirmish, 'goblin', { id: 'goblin', side: 'monsters', position: { q: 2, r: 2 } }));
+    const changes = network.host.setSystem({
+      ...skirmish,
+      abilities: skirmish.abilities.filter((ability) => ability.id !== 'shoot'),
+      monsters: skirmish.monsters.map((monster) => ({ ...monster, abilities: monster.abilities.filter((ability) => ability !== 'shoot') })),
+    });
+    network.flush();
+    expect(changes).toEqual(['Goblin loses ability shoot']);
+    expect(ana.session.state?.combat?.combatants.goblin?.sheet.abilities).toEqual(['strike']);
+    expect(ana.session.state?.log.at(-1)).toMatchObject({ kind: 'system', text: 'Keeper updates the rules (Skirmish): Goblin loses ability shoot' });
+    // The same rules again: nothing to log.
+    const logged = network.host.snapshot().log.length;
+    network.host.setSystem(network.host.snapshot().system!);
+    expect(network.host.snapshot().log).toHaveLength(logged);
   });
 
   it('answers nothing before hello', () => {

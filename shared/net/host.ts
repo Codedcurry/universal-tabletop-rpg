@@ -26,7 +26,7 @@ import { type CharacterArt, type CharacterSource, EMPTY_ART, type ImageAsset, so
 import { type MapPatch, applyPatch, isEmptyPatch } from '../editor';
 import { type MapData, type WorldMap, createWorldMap } from '../map';
 import type { RandomSource } from '../random';
-import { type CreatureSheet, type GameSystem, computeCreature, validateGameSystem } from '../system';
+import { type CreatureSheet, type GameSystem, computeCreature, fitCreatures, fitSheet, validateGameSystem } from '../system';
 import {
   type ClientMessage,
   type HostMessage,
@@ -347,10 +347,46 @@ export class HostSession {
     return { kind: 'settings', dmTitle, rollMode, playersControlOwn, fogOfWar };
   }
 
-  setSystem(system: GameSystem): void {
+  /**
+   * Sets the game system (or changes the rules mid-game). Creatures in play
+   * and players' characters are fitted to it (stats, abilities, and
+   * conditions it doesn't have are dropped, HP kept within the maximum;
+   * `renames` carries renamed stats' values over, old id to new); returns
+   * what that changed, which is also logged.
+   */
+  setSystem(system: GameSystem, renames: Readonly<Record<string, string>> = {}): string[] {
     const result = validateGameSystem(system);
     if (!result.ok) throw new Error(`Invalid game system: ${result.errors[0]?.path} ${result.errors[0]?.message}`);
-    this.publish({ kind: 'system', system: result.system });
+    const previous = this.state.system;
+    const changes: string[] = [];
+    const combat = this.state.combat;
+    const fitted = combat ? fitCreatures(combat.combatants, result.system, renames) : null;
+    changes.push(...(fitted?.changes ?? []));
+    // The rules and the fight fitted to them arrive together.
+    this.publish(
+      combat && fitted && fitted.creatures !== combat.combatants
+        ? { kind: 'system', system: result.system, combat: { ...combat, combatants: fitted.creatures } }
+        : { kind: 'system', system: result.system },
+    );
+    for (const player of this.players) if (player.character) player.character = this.fitCharacter(player.character, renames);
+    if (previous && JSON.stringify(previous) !== JSON.stringify(result.system)) {
+      const detail = changes.length > 0 ? `: ${changes.join('; ')}` : '';
+      this.log({ kind: 'system', text: `${this.state.dmTitle} updates the rules (${result.system.name})${detail}` });
+    }
+    return changes;
+  }
+
+  /**
+   * A player's character fitted to the rules: what the system doesn't have is
+   * dropped, and a character left with no abilities gets the system's first,
+   * so it can still act (the DM can change it in the creature editor).
+   */
+  private fitCharacter(character: CreatureSheet, renames: Readonly<Record<string, string>> = {}): CreatureSheet {
+    const system = this.state.system;
+    if (!system) return character;
+    const { sheet } = fitSheet(character, system, renames);
+    const first = system.abilities[0];
+    return sheet.abilities.length === 0 && first ? { ...sheet, abilities: [first.id] } : sheet;
   }
 
   setMap(data: MapData): void {
@@ -513,7 +549,7 @@ export class HostSession {
     const id = player?.id ?? `p${this.nextPlayerNumber}`;
     let character: CreatureSheet | null = null;
     if (message.character) {
-      character = { ...message.character, id: characterIdFor(id) };
+      character = this.fitCharacter({ ...message.character, id: characterIdFor(id) });
       const problem = this.characterProblem(character);
       if (problem) {
         this.rejectJoin(connection, `Your character doesn't fit this game: ${problem}`);

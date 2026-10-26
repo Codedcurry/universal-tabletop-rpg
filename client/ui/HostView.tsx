@@ -5,6 +5,7 @@ import type { RollMode } from '@shared/net';
 import { demoFight, demoMap, demoSystem } from '../demo';
 import type { HostedGame } from '../net/transport';
 import { ArtPanel } from './ArtPanel';
+import { RulesPanel } from './RulesPanel';
 import { CombatPanel } from './CombatPanel';
 import { DiceBox } from './DiceBox';
 import { EncounterPanel, type Placing } from './EncounterPanel';
@@ -13,7 +14,7 @@ import { MapEditor } from './MapEditor';
 import { Players } from './Players';
 
 // The DM's page: the map front and center, the DM tools beside it grouped in
-// tabs (Encounter, Map, Session) and hideable, then the turn order and log.
+// tabs (Encounter, Map, Rules, Art, Session) and hideable, then the turn order and log.
 
 const ROLL_MODES: { value: RollMode; label: string }[] = [
   { value: 'player', label: 'Players roll on their device' },
@@ -21,10 +22,11 @@ const ROLL_MODES: { value: RollMode; label: string }[] = [
   { value: 'physical', label: 'Players use real dice' },
 ];
 
-type Tab = 'encounter' | 'map' | 'art' | 'session';
+type Tab = 'encounter' | 'map' | 'rules' | 'art' | 'session';
 const TABS: { id: Tab; label: string }[] = [
   { id: 'encounter', label: 'Encounter' },
   { id: 'map', label: 'Map' },
+  { id: 'rules', label: 'Rules' },
   { id: 'art', label: 'Art' },
   { id: 'session', label: 'Session' },
 ];
@@ -235,6 +237,10 @@ export function HostView({ game, combatEvents, lastSaved = null, notice = null }
 
             {/* The map editor renders its tools here, keeping their state while hidden. */}
             <div role="tabpanel" aria-label="Map" hidden={tab !== 'map'} ref={setToolsSlot} />
+
+            <div role="tabpanel" aria-label="Rules" hidden={tab !== 'rules'}>
+              <RulesPanel session={session} />
+            </div>
 
             <div role="tabpanel" aria-label="Art" hidden={tab !== 'art'}>
               <ArtPanel session={session} />

@@ -47,7 +47,7 @@ export function applyUpdate(
     case 'settings':
       return { ...next, dmTitle: update.dmTitle, rollMode: update.rollMode, playersControlOwn: update.playersControlOwn, fogOfWar: update.fogOfWar };
     case 'system':
-      return { ...next, system: update.system };
+      return update.combat === undefined ? { ...next, system: update.system } : { ...next, system: update.system, combat: update.combat };
     case 'map':
       return { ...next, map: update.map };
     case 'mapPatch':

@@ -90,7 +90,8 @@ export interface SessionSnapshot {
 export type SessionUpdate =
   | { readonly kind: 'players'; readonly players: readonly PublicPlayer[] }
   | { readonly kind: 'settings'; readonly dmTitle: string; readonly rollMode: RollMode; readonly playersControlOwn: boolean; readonly fogOfWar: boolean }
-  | { readonly kind: 'system'; readonly system: GameSystem | null }
+  /** New rules; `combat`, if there is a fight, is it fitted to them, in the same step (so nobody sees new rules with old creatures). */
+  | { readonly kind: 'system'; readonly system: GameSystem | null; readonly combat?: CombatState | null }
   | { readonly kind: 'map'; readonly map: MapData | null }
   /** A live edit: just the changed tiles and walls. */
   | { readonly kind: 'mapPatch'; readonly patch: MapPatch }
