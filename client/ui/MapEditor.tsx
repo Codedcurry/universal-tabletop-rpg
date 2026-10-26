@@ -23,11 +23,12 @@ import {
   undo,
 } from '@shared/editor';
 import { type Cell, type GridKind, cellKey } from '@shared/grid';
-import { MAP_OBJECTS, MAX_TILES, type MapData, MapError, createWorldMap, validateMapData } from '@shared/map';
+import { type CustomObject, MAP_OBJECTS, MAX_TILES, type MapData, MapError, createWorldMap, validateMapData } from '@shared/map';
 import type { HostSession } from '@shared/net';
 import type { CombatEvent } from '@shared/combat';
 import type { TilePointer } from '../render/WorldView';
 import { CombatHud } from './CombatHud';
+import { ObjectMaker } from './ObjectMaker';
 import { ReactionPrompt } from './ReactionPrompt';
 import { useCombatPlay } from './useCombatPlay';
 import { TERRAINS, placeholderStyle } from '../style/stylePack';
@@ -219,6 +220,20 @@ export function MapEditor({ session, combatEvents, editing, toolsSlot, onMapClic
     lastIncoming.current = incomingMap.key;
     replaceMap(incomingMap.map);
   }, [incomingMap]);
+
+  /** Adds one of the map's own objects (made by the AI), as one undoable change. */
+  function addObject(object: CustomObject): void {
+    const current = session.snapshot().map;
+    if (!current) return;
+    try {
+      const next = createWorldMap({ ...current, objects: [...(current.objects ?? []), object] }).toData();
+      session.editMap(diffMaps(current, next));
+      setHistory((h) => recordChange(h, current, next));
+      setError(null);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
 
   /** Replaces the whole map (new, generated, imported) as one undoable change when possible. */
   function replaceMap(next: MapData): void {
@@ -545,6 +560,16 @@ export function MapEditor({ session, combatEvents, editing, toolsSlot, onMapClic
                   )}
                 </select>
               </label>
+            )}
+            {tool === 'object' && (
+              <ObjectMaker
+                taken={(map?.objects ?? []).map((entry) => entry.id)}
+                onAdd={(object) => {
+                  addObject(object);
+                  setObjectId(object.id);
+                }}
+                {...(onOpenBooks ? { onOpenBooks } : {})}
+              />
             )}
             {usesLevel && (
               <label>

@@ -83,6 +83,17 @@ async function fakeOllama(page: Page, asked: string[]) {
     const [instructions, prompt] = [body.messages[0]?.content ?? '', body.messages[1]?.content ?? ''];
     asked.push(prompt.slice(0, 120));
     let answer: object = {};
+    if (instructions.startsWith('You make a small 3D model')) {
+      const bed = { name: 'Makeshift bed', blocks: false, blocksSight: false, parts: [{ shape: 'box', size: [0.7, 0.03, 0.9], color: '#8b5a3c' }] };
+      return route.fulfill({ headers: cors, body: JSON.stringify({ message: { content: JSON.stringify(bed) } }) });
+    }
+    if (instructions.startsWith('You advise the game master')) {
+      const ideas = { suggestions: [{ idea: 'The bats stir in the rafters.', why: 'Area 1 says they wake at noise.' }] };
+      return route.fulfill({ headers: cors, body: JSON.stringify({ message: { content: JSON.stringify(ideas) } }) });
+    }
+    if (instructions.startsWith('You help the game master')) {
+      return route.fulfill({ headers: cors, body: JSON.stringify({ message: { content: 'Narration: "Dust drifts down from the vaulted ceiling."' } }) });
+    }
     if (instructions.startsWith('You furnish a battle map')) {
       answer = {
         layout: 'The idol in the middle of the vault, a table in the hall.',
@@ -178,4 +189,51 @@ test('without an AI running, the Books tab says how to set one up', async ({ bro
   await expect(books.getByRole('status')).toContainText("Couldn't reach Ollama at http://localhost:11434. Is Ollama running?");
   await books.getByLabel('Add books').setInputFiles({ name: 'broken.pdf', mimeType: 'application/pdf', buffer: Buffer.from('not a pdf') });
   await expect(books.getByRole('alert')).toContainText("broken.pdf isn't a PDF this browser can read");
+});
+
+test('the DM gets a narration suggestion from their AI, edits it, and sends it to everyone', async ({ browser }) => {
+  const dm = await host(browser);
+  const asked: string[] = [];
+  await fakeOllama(dm, asked);
+  const narration = dm.getByRole('region', { name: 'DM help' });
+  // No AI set up yet: it says where to set it up.
+  await narration.getByRole('button', { name: 'Suggest narration' }).click();
+  await expect(narration).toContainText('Set up your AI in the Books tab first.');
+
+  await openBooks(dm);
+  await dm.getByLabel('Message').fill('The party enters the crypt.');
+  await dm.getByRole('button', { name: 'Send' }).click();
+  await narration.getByLabel(/^Tone/).selectOption('grim');
+  await narration.getByRole('button', { name: 'Suggest narration' }).click();
+  const suggestion = narration.getByLabel(/^Suggested narration/);
+  await expect(suggestion).toHaveValue('Dust drifts down from the vaulted ceiling.');
+  expect(asked.at(-1)).toContain('The latest lines of the game log');
+  await suggestion.fill('Dust drifts down from the vaulted ceiling, and something stirs.');
+  await narration.getByRole('button', { name: 'Send to everyone' }).click();
+  await expect(dm.getByTestId('log').getByText('Dust drifts down from the vaulted ceiling, and something stirs.')).toBeVisible();
+  await expect(suggestion).toHaveCount(0);
+
+  // What next? A few ideas, with why.
+  await narration.getByRole('button', { name: 'What next?' }).click();
+  const ideas = narration.getByRole('group', { name: 'What you could do next' });
+  await expect(ideas.getByRole('listitem')).toHaveText(['The bats stir in the rafters. Area 1 says they wake at noise.']);
+});
+
+test('the DM describes an object, their AI makes it, and it is added to the map, ready to place', async ({ browser }) => {
+  const dm = await host(browser);
+  await fakeOllama(dm, []);
+  await openBooks(dm);
+  await dm.getByRole('tab', { name: 'Map' }).click();
+  await dm.getByRole('button', { name: 'Objects', exact: true }).click();
+  const maker = dm.getByRole('group', { name: 'Make something new' });
+  await maker.getByLabel('Describe something to make').fill('a makeshift bed: a rug on the floor');
+  await maker.getByRole('button', { name: 'Make it (AI)' }).click();
+  await expect(maker).toContainText('Makeshift bed · 1 part');
+  await maker.getByRole('button', { name: 'Add to this map' }).click();
+  // It's picked in the object tool, under the map's own.
+  await expect(dm.getByRole('combobox', { name: /^Object/ })).toHaveValue('makeshift_bed');
+  await expect(dm.locator(`optgroup[label="This map's own"] option[value="makeshift_bed"]`)).toBeAttached();
+  // Undo takes it away again.
+  await dm.getByRole('button', { name: 'Undo' }).click();
+  await expect(dm.locator('option[value="makeshift_bed"]')).toHaveCount(0);
 });

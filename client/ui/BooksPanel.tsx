@@ -46,7 +46,7 @@ interface Book {
 
 const bookName = (file: File) => file.name.replace(/\.(pdf|txt|md)$/i, '').replace(/\s*\[[^\]]*\]\s*/g, ' ').trim();
 
-export function BooksPanel({ session, onUseMap }: { session: HostSession; onUseMap: (map: MapData) => void }) {
+export function BooksPanel({ session, onUseMap }: { session: HostSession; onUseMap: (map: MapData, scene: string | null) => void }) {
   const [settings, setSettings] = useState<AiSettings>(loadAiSettings);
   const [books, setBooks] = useState<readonly Book[]>([]);
   const [reading, setReading] = useState<string | null>(null);
@@ -54,6 +54,8 @@ export function BooksPanel({ session, onUseMap }: { session: HostSession; onUseM
   const [review, setReview] = useState<{ system: GameSystem; notes: readonly string[] } | null>(null);
   const [making, setMaking] = useState<string | null>(null);
   const [made, setMade] = useState<MapPlanResult | MapGuideResult | null>(null);
+  /** The text the map was made from: its areas' descriptions (for narration). */
+  const [madeFrom, setMadeFrom] = useState<string | null>(null);
   const [other, setOther] = useState({ book: 0, page: 1 });
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -117,6 +119,7 @@ export function BooksPanel({ session, onUseMap }: { session: HostSession; onUseM
     setMade(null);
     const provider = makeProvider(settings);
     const text = areas.length > 0 ? areaText(book.pages, book.areas, areas, MAP_TEXT) : (book.pages[page - 1] ?? '');
+    setMadeFrom(text || null);
     try {
       if (isPdf(book.file)) {
         setMaking(`Tracing page ${page}…`);
@@ -297,7 +300,7 @@ export function BooksPanel({ session, onUseMap }: { session: HostSession; onUseM
                   type="button"
                   className="primary"
                   onClick={() => {
-                    onUseMap(made.map);
+                    onUseMap(made.map, madeFrom);
                     setMade(null);
                     setNotice('The map is in use: see the Map tab to touch it up (Undo brings the old one back).');
                   }}

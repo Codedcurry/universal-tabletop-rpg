@@ -14,6 +14,7 @@ import { DiceBox } from './DiceBox';
 import { EncounterPanel, type Placing } from './EncounterPanel';
 import { LogPanel } from './LogPanel';
 import { MapEditor } from './MapEditor';
+import { NarrationHelper } from './NarrationHelper';
 import { Players } from './Players';
 
 // The DM's page: the map front and center, the DM tools beside it grouped in
@@ -53,6 +54,8 @@ export function HostView({ game, combatEvents, lastSaved = null, notice = null }
   const [tab, setTab] = useState<Tab>('map');
   /** A map made in the Books tab, for the map editor to put in place. */
   const [incomingMap, setIncomingMap] = useState<{ map: MapData; key: number } | null>(null);
+  /** The scene's description from the DM's book, when the map in use came from one (for narration). */
+  const [scene, setScene] = useState<string | null>(null);
   const [toolsOpen, setToolsOpen] = useState(true);
   const [toolsSlot, setToolsSlot] = useState<HTMLElement | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -253,7 +256,10 @@ export function HostView({ game, combatEvents, lastSaved = null, notice = null }
             </div>
 
             <div role="tabpanel" aria-label="Books" hidden={tab !== 'books'}>
-              <BooksPanel session={session} onUseMap={(map) => setIncomingMap((now) => ({ map, key: (now?.key ?? 0) + 1 }))} />
+              <BooksPanel session={session} onUseMap={(map, sceneText) => {
+                  setIncomingMap((now) => ({ map, key: (now?.key ?? 0) + 1 }));
+                  setScene(sceneText);
+                }} />
             </div>
 
             <div role="tabpanel" aria-label="Art" hidden={tab !== 'art'}>
@@ -318,6 +324,7 @@ export function HostView({ game, combatEvents, lastSaved = null, notice = null }
 
         <section className="card">
           <h2>Log</h2>
+          <NarrationHelper session={session} scene={scene} onOpenBooks={() => setTab('books')} />
           <LogPanel
             state={state}
             viewer="dm"

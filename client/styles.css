@@ -1834,3 +1834,37 @@ button.danger {
 .books-panel > details.panel {
   padding: 8px 12px;
 }
+/* Narration suggestions, above the DM's log. */
+.narration {
+  margin-bottom: 8px;
+}
+.narration-suggestion textarea {
+  width: 100%;
+  font: inherit;
+}
+.narration .link {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  text-decoration: underline;
+}
+.dm-ideas ol {
+  margin: 4px 0 8px;
+  padding-left: 20px;
+}
+.dm-ideas li {
+  margin: 4px 0;
+}
+/* Making an object from a description (the map's object tool). */
+.object-maker {
+  flex: 1 1 100%;
+}
+.made-object .swatch.small {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  margin-right: 2px;
+  border-radius: 4px;
+}

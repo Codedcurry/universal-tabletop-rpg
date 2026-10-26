@@ -270,7 +270,7 @@ const clampNumber = (value: unknown, min: number, max: number, fallback: number)
 const SHAPES = new Set(['box', 'cylinder', 'cone', 'sphere']);
 
 /** The objects a plan makes, tidied into valid ones: ids from names, sizes and places kept in range, colours checked. */
-function madeObjects(value: unknown): CustomObject[] {
+export function madeObjects(value: unknown): CustomObject[] {
   const taken = new Set<string>();
   return list(value)
     .slice(0, MAX_CUSTOM_OBJECTS)
