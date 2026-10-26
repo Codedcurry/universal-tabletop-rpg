@@ -1,4 +1,4 @@
-import type { CombatState } from '../combat';
+import { type CombatState, type HouseRule, parseHouseRule } from '../combat';
 import type { Cell } from '../grid';
 import { type MapData, validateMapData } from '../map';
 import { type CreatureSheet, type GameSystem, validateGameSystem } from '../system';
@@ -38,6 +38,8 @@ export interface SavedGame {
     readonly playersControlOwn: boolean;
     readonly fogOfWar: boolean;
     readonly system: GameSystem | null;
+    /** The DM's house rules (saves from before them have none). */
+    readonly houseRules?: readonly HouseRule[];
     readonly map: MapData | null;
     readonly combat: CombatState | null;
     readonly log: readonly LogEntry[];
@@ -94,6 +96,9 @@ export function validateSavedGame(data: unknown): SavedGameValidation {
   }
   if (state.combat !== null && (!isObject(state.combat) || !Array.isArray(state.combat.order) || !isObject(state.combat.combatants))) {
     return fail('The fight is broken');
+  }
+  if (state.houseRules !== undefined) {
+    if (!Array.isArray(state.houseRules) || !state.houseRules.every((rule) => parseHouseRule(rule) !== null)) return fail('The house rules are broken');
   }
   if (state.art !== undefined) {
     const art = validateCustomArt(state.art);

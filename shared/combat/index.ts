@@ -1,6 +1,7 @@
 export type * from './types';
 export {
   CombatSetupError,
+  actionProblems,
   abilityReach,
   activeCombatant,
   applyAction,
@@ -21,3 +22,12 @@ export {
   dmRenameCombatant,
   dmReorderCombatants,
 } from './dm';
+export {
+  type HouseRule,
+  MAX_RULE_EXTRA,
+  type RuleProblem,
+  describeHouseRule,
+  parseHouseRule,
+  ruleFits,
+  withRule,
+} from './houseRules';

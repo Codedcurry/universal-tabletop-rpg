@@ -20,6 +20,7 @@ import type {
   CombatState,
   CombatantSetup,
 } from './types';
+import { type HouseRule, MAX_RULE_EXTRA, type RuleProblem } from './houseRules';
 
 /**
  * The combat rules engine. Pure functions: state in, new state and events out.
@@ -63,12 +64,24 @@ function activeConditions(system: GameSystem, combatant: Combatant): ConditionDe
     .filter((condition): condition is ConditionDef => condition !== undefined);
 }
 
-function blockingCondition(
-  system: GameSystem,
-  combatant: Combatant,
-  flag: 'preventsActions' | 'preventsMovement',
-): ConditionDef | undefined {
-  return activeConditions(system, combatant).find((condition) => condition[flag] === true);
+/** The house rules in force for this action: the DM's, and any allowed just this once. */
+function rulings(ctx: CombatContext): readonly HouseRule[] {
+  return [...(ctx.houseRules ?? []), ...(ctx.overrules ?? [])];
+}
+
+const forAbility = (rule: { readonly ability: string | null }, abilityId: string) => rule.ability === null || rule.ability === abilityId;
+
+function extraRange(ctx: CombatContext, abilityId: string): number {
+  return rulings(ctx).reduce((total, rule) => (rule.kind === 'range' && forAbility(rule, abilityId) ? total + rule.extra : total), 0);
+}
+
+/** A condition stopping a creature acting or moving, unless a house rule lets it. */
+function blockingCondition(ctx: CombatContext, combatant: Combatant, flag: 'preventsActions' | 'preventsMovement'): ConditionDef | undefined {
+  const allows = flag === 'preventsActions' ? 'act' : 'move';
+  return activeConditions(ctx.system, combatant).find(
+    (condition) =>
+      condition[flag] === true && !rulings(ctx).some((rule) => rule.kind === 'condition' && rule.condition === condition.id && rule.allows === allows),
+  );
 }
 
 /** @internal */
@@ -151,9 +164,11 @@ export class Draft {
     const combatant = this.get(id);
     this.turnIndex = index;
     this.actionUsed = false;
-    this.movementLeft = blockingCondition(this.ctx.system, combatant, 'preventsMovement')
+    // Speed, plus any house rule's extra movement (not this action's one-off rulings).
+    const extra = (this.ctx.houseRules ?? []).reduce((total, rule) => (rule.kind === 'movement' ? total + rule.extra : total), 0);
+    this.movementLeft = blockingCondition({ ...this.ctx, overrules: [] }, combatant, 'preventsMovement')
       ? 0
-      : computeCreature(this.ctx.system, combatant.sheet).speed;
+      : computeCreature(this.ctx.system, combatant.sheet).speed + extra;
     this.emit({ type: 'turnStarted', combatantId: id, round: this.round });
   }
 
@@ -342,40 +357,66 @@ export function applyAction(
 function move(ctx: CombatContext, draft: Draft, actorId: string, to: CombatantSetup['position']): void {
   const actor = draft.get(actorId);
   if (cellKey(actor.position) === cellKey(to)) violation(`${actor.sheet.name} is already there`);
-  const blocker = blockingCondition(ctx.system, actor, 'preventsMovement');
+  const blocker = blockingCondition(ctx, actor, 'preventsMovement');
   if (blocker) violation(`${actor.sheet.name} is ${blocker.name} and can't move`);
 
+  // Movement left, plus any allowed just this once.
+  const budget = draft.movementLeft + oneOffMovement(ctx);
   const occupants = occupantsFor(draft.combatants, actorId);
-  const path = findPath({ map: ctx.map, rules: ctx.system.movement, occupants }, actor.position, to, draft.movementLeft);
+  const path = findPath({ map: ctx.map, rules: ctx.system.movement, occupants }, actor.position, to, budget);
   if (!path) violation(`${actor.sheet.name} can't reach that tile this turn`);
 
   const steps = path.path;
   const facing = headingBetween(ctx.map.grid, steps[steps.length - 2] as CombatantSetup['position'], to);
   draft.update(actorId, { position: to, facing });
-  draft.movementLeft -= path.cost;
+  draft.movementLeft = Math.max(0, budget - path.cost);
   draft.emit({ type: 'moved', combatantId: actorId, path: path.path, cost: path.cost });
 }
 
-function checkTarget(ctx: CombatContext, ability: AbilityDef, actor: Combatant, target: Combatant): void {
+/** Movement allowed just this once, on top of what's left. */
+function oneOffMovement(ctx: CombatContext): number {
+  return (ctx.overrules ?? []).reduce((total, rule) => (rule.kind === 'movement' ? total + rule.extra : total), 0);
+}
+
+/**
+ * Everything wrong with aiming an ability at a target (nothing: it's
+ * allowed), each with the house rule that would allow it, if a ruling can.
+ */
+function targetProblems(ctx: CombatContext, ability: AbilityDef, actor: Combatant, target: Combatant): RuleProblem[] {
+  const problems: RuleProblem[] = [];
+  const anyone = rulings(ctx).some((rule) => rule.kind === 'target' && rule.ability === ability.id);
+  const anyTarget: HouseRule = { kind: 'target', ability: ability.id };
   switch (ability.target) {
     case 'self':
-      if (target.sheet.id !== actor.sheet.id) violation(`${ability.name} can only target yourself`);
-      return;
+      if (target.sheet.id !== actor.sheet.id && !anyone) problems.push({ message: `${ability.name} can only target yourself`, fix: anyTarget });
+      break;
     case 'enemy':
-      if (target.side === actor.side) violation(`${ability.name} must target an enemy`);
-      if (!standing(target)) violation(`${target.sheet.name} is already down`);
+      if (target.side === actor.side && !anyone) problems.push({ message: `${ability.name} must target an enemy`, fix: anyTarget });
+      if (!standing(target)) problems.push({ message: `${target.sheet.name} is already down`, fix: null });
       break;
     case 'ally':
-      if (target.side !== actor.side) violation(`${ability.name} must target an ally`);
+      if (target.side !== actor.side && !anyone) problems.push({ message: `${ability.name} must target an ally`, fix: anyTarget });
       break;
   }
-  if (ctx.map.grid.distance(actor.position, target.position) > ability.range) {
-    violation(`${target.sheet.name} is out of range for ${ability.name} (range ${ability.range})`);
+  const reach = ability.range + extraRange(ctx, ability.id);
+  const distance = ctx.map.grid.distance(actor.position, target.position);
+  if (distance > reach) {
+    problems.push({
+      message: `${target.sheet.name} is out of range for ${ability.name} (range ${reach})`,
+      fix: { kind: 'range', ability: ability.id, extra: Math.min(MAX_RULE_EXTRA, distance - reach) },
+    });
   }
   // Anything aimed at another creature needs a clear view of it (see shared/vision).
-  if (target.sheet.id !== actor.sheet.id && !hasLineOfSight(ctx.map, actor.position, target.position)) {
-    violation(`${target.sheet.name} is out of sight`);
+  const sightless = rulings(ctx).some((rule) => rule.kind === 'sight' && forAbility(rule, ability.id));
+  if (target.sheet.id !== actor.sheet.id && !sightless && !hasLineOfSight(ctx.map, actor.position, target.position)) {
+    problems.push({ message: `${target.sheet.name} is out of sight`, fix: { kind: 'sight', ability: ability.id } });
   }
+  return problems;
+}
+
+function checkTarget(ctx: CombatContext, ability: AbilityDef, actor: Combatant, target: Combatant): void {
+  const [problem] = targetProblems(ctx, ability, actor, target);
+  if (problem) violation(problem.message);
 }
 
 function useAbility(
@@ -389,7 +430,7 @@ function useAbility(
   const { system } = ctx;
   const actor = draft.get(actorId);
   if (draft.actionUsed) violation(`${actor.sheet.name} has already used an action this turn`);
-  const blocker = blockingCondition(system, actor, 'preventsActions');
+  const blocker = blockingCondition(ctx, actor, 'preventsActions');
   if (blocker) violation(`${actor.sheet.name} is ${blocker.name} and can't act`);
 
   const ability = system.abilities.find((entry) => entry.id === abilityId) ?? violation(`Unknown ability "${abilityId}"`);
@@ -532,7 +573,7 @@ function canAct(state: CombatState, actorId: string): Combatant | null {
 /** Tiles the creature can move to this turn, with the cheapest path to each. */
 export function moveOptions(ctx: CombatContext, state: CombatState, actorId: string): Map<string, Reach> {
   const actor = canAct(state, actorId);
-  if (!actor || state.movementLeft <= 0 || blockingCondition(ctx.system, actor, 'preventsMovement')) return new Map();
+  if (!actor || state.movementLeft <= 0 || blockingCondition(ctx, actor, 'preventsMovement')) return new Map();
   const occupants = occupantsFor(state.combatants, actorId);
   return reachable({ map: ctx.map, rules: ctx.system.movement, occupants }, actor.position, state.movementLeft);
 }
@@ -540,7 +581,7 @@ export function moveOptions(ctx: CombatContext, state: CombatState, actorId: str
 /** Creatures the ability can target right now (in setup order). */
 export function targetOptions(ctx: CombatContext, state: CombatState, actorId: string, abilityId: string): string[] {
   const actor = canAct(state, actorId);
-  if (!actor || state.actionUsed || blockingCondition(ctx.system, actor, 'preventsActions')) return [];
+  if (!actor || state.actionUsed || blockingCondition(ctx, actor, 'preventsActions')) return [];
   const ability = ctx.system.abilities.find((entry) => entry.id === abilityId);
   if (!ability || !actor.sheet.abilities.includes(abilityId)) return [];
   return Object.entries(state.combatants)
@@ -572,6 +613,55 @@ export function abilityReach(ctx: CombatContext, state: CombatState, combatantId
   return ctx.map.cells().filter((cell) => {
     if (cell.q === from.q && cell.r === from.r) return ability.target === 'ally';
     if (ctx.map.tile(cell)?.blocked) return false;
-    return ctx.map.grid.distance(from, cell) <= ability.range;
+    return ctx.map.grid.distance(from, cell) <= ability.range + extraRange(ctx, ability.id);
   });
+}
+
+/** How far a path would have to go, ignoring movement left (null: there's no way there at all). */
+const UNLIMITED = 10_000;
+
+/**
+ * Why an action isn't allowed, each problem with the house rule that would
+ * allow it (none if no ruling can). Empty: it's allowed. For explaining a
+ * refusal, and for the DM to overrule it.
+ */
+export function actionProblems(ctx: CombatContext, state: CombatState, action: CombatAction): RuleProblem[] {
+  const actor = state.combatants[action.actorId];
+  if (state.status !== 'active') return [{ message: 'The fight hasn\'t started', fix: null }];
+  if (!actor) return [{ message: 'No such creature', fix: null }];
+  if (state.order[state.turnIndex] !== action.actorId) return [{ message: `It is not ${actor.sheet.name}'s turn`, fix: null }];
+  if (!standing(actor)) return [{ message: `${actor.sheet.name} is down`, fix: null }];
+
+  if (action.type === 'endTurn') return [];
+  if (action.type === 'move') {
+    if (cellKey(actor.position) === cellKey(action.to)) return [{ message: `${actor.sheet.name} is already there`, fix: null }];
+    const problems: RuleProblem[] = [];
+    const blocker = blockingCondition(ctx, actor, 'preventsMovement');
+    if (blocker) problems.push({ message: `${actor.sheet.name} is ${blocker.name} and can't move`, fix: { kind: 'condition', condition: blocker.id, allows: 'move' } });
+    const occupants = occupantsFor(state.combatants, action.actorId);
+    const path = findPath({ map: ctx.map, rules: ctx.system.movement, occupants }, actor.position, action.to, UNLIMITED);
+    if (!path) return [...problems, { message: `${actor.sheet.name} can't get there`, fix: null }];
+    // A creature a condition stopped has no movement this turn: it needs it all, just this once.
+    const left = (blocker ? 0 : state.movementLeft) + oneOffMovement(ctx);
+    if (path.cost > left) {
+      const short = path.cost - left;
+      problems.push({
+        message: `${actor.sheet.name} can't reach that tile this turn (${path.cost} movement needed, ${left} left)`,
+        fix: { kind: 'movement', extra: Math.min(MAX_RULE_EXTRA, short) },
+        ...(blocker ? { nowOnly: true } : {}),
+      });
+    }
+    return problems;
+  }
+
+  const problems: RuleProblem[] = [];
+  if (state.actionUsed) problems.push({ message: `${actor.sheet.name} has already used an action this turn`, fix: null });
+  const blocker = blockingCondition(ctx, actor, 'preventsActions');
+  if (blocker) problems.push({ message: `${actor.sheet.name} is ${blocker.name} and can't act`, fix: { kind: 'condition', condition: blocker.id, allows: 'act' } });
+  const ability = ctx.system.abilities.find((entry) => entry.id === action.abilityId);
+  if (!ability) return [...problems, { message: `Unknown ability "${action.abilityId}"`, fix: null }];
+  if (!actor.sheet.abilities.includes(ability.id)) problems.push({ message: `${actor.sheet.name} doesn't know ${ability.name}`, fix: null });
+  const target = state.combatants[action.targetId];
+  if (!target) return [...problems, { message: 'No such target', fix: null }];
+  return [...problems, ...targetProblems(ctx, ability, actor, target)];
 }

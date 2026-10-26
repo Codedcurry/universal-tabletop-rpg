@@ -6,10 +6,15 @@ import {
   type CombatState,
   type CombatantSetup,
   type CombatantPatch,
+  type HouseRule,
+  type RuleProblem,
+  actionProblems,
   applyAction,
   beginFight,
   createEncounter,
   describeCombatEvents,
+  describeHouseRule,
+  ruleFits,
   dmAddCombatant,
   dmEditCombatant,
   dmPlaceCombatant,
@@ -18,6 +23,7 @@ import {
   dmReorderCombatants,
   type StartOptions,
   startCombat,
+  withRule,
 } from '../combat';
 import { DiceNotationError, RollReplayError, type RollResult, replayRoll, roll } from '../dice';
 import { type Cell, cellKey } from '../grid';
@@ -103,6 +109,16 @@ export interface DmNote {
 
 const MAX_NOTE_LENGTH = 2000;
 
+/** A player asking the DM to allow an action the rules refuse. */
+export interface PendingRuling {
+  readonly id: number;
+  readonly playerId: string;
+  readonly playerName: string;
+  readonly action: CombatAction;
+  /** What the rules say, each with the ruling that would allow it. */
+  readonly problems: readonly RuleProblem[];
+}
+
 export class HostSession {
   private state: SessionSnapshot;
   private worldMap: WorldMap | null = null;
@@ -110,6 +126,9 @@ export class HostSession {
   private readonly players: PlayerRecord[] = [];
   /** DM-only notes on tiles, by cell key. Never part of the public state. */
   private readonly dmNotes = new Map<string, DmNote>();
+  /** Players' requests for the DM to allow an action the rules refuse, waiting for an answer (the DM's alone). */
+  private readonly pending: PendingRuling[] = [];
+  private nextRuling = 1;
   /** How the DM built each character in the frame picker, by art key, to edit it again. Never part of the public state. */
   private readonly artSources = new Map<string, CharacterSource>();
   private nextPlayerNumber = 1;
@@ -125,6 +144,7 @@ export class HostSession {
       art: EMPTY_ART,
       players: [],
       system: null,
+      houseRules: [],
       map: null,
       combat: null,
       log: [],
@@ -140,13 +160,13 @@ export class HostSession {
 
   /** Everything needed to carry on later (see saved.ts), under the room code `code`. */
   saveGame(code: string): SavedGame {
-    const { dmTitle, rollMode, playersControlOwn, fogOfWar, system, map, combat, log, art } = this.state;
+    const { dmTitle, rollMode, playersControlOwn, fogOfWar, system, houseRules, map, combat, log, art } = this.state;
     return {
       format: SAVED_GAME_FORMAT,
       version: SAVED_GAME_VERSION,
       code,
       savedAt: this.options.now(),
-      state: { dmTitle, rollMode, playersControlOwn, fogOfWar, system, map, combat, log, art },
+      state: { dmTitle, rollMode, playersControlOwn, fogOfWar, system, houseRules, map, combat, log, art },
       players: this.players.map(({ id, token, name, character, granted }) => ({ id, token, name, character, granted: [...granted] })),
       notes: this.notes(),
       artSources: Object.fromEntries(this.artSources),
@@ -168,6 +188,7 @@ export class HostSession {
       playersControlOwn: state.playersControlOwn,
       fogOfWar: state.fogOfWar,
       system: state.system,
+      houseRules: state.houseRules ?? [],
       map: state.map,
       combat: state.combat,
       log: [...state.log],
@@ -241,6 +262,9 @@ export class HostSession {
         return;
       case 'combatAction':
         this.playerAction(connection, player, message.requestId, message.action);
+        return;
+      case 'askRuling':
+        this.playerAsksRuling(connection, player, message.requestId, message.action);
         return;
       case 'chat':
         this.playerChat(connection, player, message.requestId, message.text, message.to);
@@ -362,6 +386,12 @@ export class HostSession {
     const combat = this.state.combat;
     const fitted = combat ? fitCreatures(combat.combatants, result.system, renames) : null;
     changes.push(...(fitted?.changes ?? []));
+    // House rules about abilities or conditions that are gone go with them.
+    const houseRules = this.state.houseRules.filter((rule) => ruleFits(rule, result.system));
+    for (const rule of this.state.houseRules) {
+      if (!houseRules.includes(rule)) changes.push(`The house rule "${describeHouseRule(rule, previous)}" no longer applies`);
+    }
+    if (houseRules.length !== this.state.houseRules.length) this.publish({ kind: 'houseRules', houseRules });
     // The rules and the fight fitted to them arrive together.
     this.publish(
       combat && fitted && fitted.creatures !== combat.combatants
@@ -491,6 +521,81 @@ export class HostSession {
     return result;
   }
 
+  // -------------------------------------------------------------------------
+  // Rulings and house rules
+
+  /** Why the rules refuse an action, and what ruling would allow it (empty: it's allowed). */
+  rulingFor(action: CombatAction): RuleProblem[] {
+    const combat = this.state.combat;
+    if (!combat) return [{ message: 'No combat is running', fix: null }];
+    return actionProblems(this.combatContext(), combat, action);
+  }
+
+  /**
+   * The DM overrules the rules for an action: allows it just this once, or
+   * (always) keeps the ruling as a house rule from now on. Refused if any of
+   * its problems is one no ruling can change.
+   */
+  overrule(action: CombatAction, always: boolean): ActionResult {
+    const combat = this.state.combat;
+    if (!combat) return { ok: false, reason: 'No combat is running' };
+    const problems = this.rulingFor(action);
+    const stuck = problems.find((problem) => problem.fix === null);
+    if (stuck) return { ok: false, reason: stuck.message };
+    const fixes = problems.map((problem) => problem.fix as HouseRule);
+    const kept = problems.filter((problem) => !problem.nowOnly).map((problem) => problem.fix as HouseRule);
+    if (always && kept.length > 0) {
+      let rules = this.state.houseRules;
+      for (const rule of kept) rules = withRule(rules, rule);
+      this.publish({ kind: 'houseRules', houseRules: rules });
+    }
+    const result = applyAction({ ...this.combatContext(), overrules: fixes }, combat, action, this.options.random);
+    if (!result.ok) return result;
+    const system = this.state.system;
+    const text =
+      always && kept.length > 0
+        ? `${this.state.dmTitle} makes a house rule: ${kept.map((rule) => describeHouseRule(rule, system)).join('; ')}`
+        : `${this.state.dmTitle} allows it just this once: ${problems.map((problem) => problem.message).join('; ')}`;
+    if (problems.length > 0) this.log({ kind: 'system', text });
+    this.setCombat(result.state, result.events);
+    return result;
+  }
+
+  /** Adds a house rule directly (it adds to a range or movement rule already there). */
+  addHouseRule(rule: HouseRule): void {
+    this.publish({ kind: 'houseRules', houseRules: withRule(this.state.houseRules, rule) });
+    this.log({ kind: 'system', text: `${this.state.dmTitle} makes a house rule: ${describeHouseRule(rule, this.state.system)}` });
+  }
+
+  /** Drops a house rule: the system's own rule applies again. */
+  removeHouseRule(index: number): void {
+    const rule = this.state.houseRules[index];
+    if (!rule) return;
+    this.publish({ kind: 'houseRules', houseRules: this.state.houseRules.filter((_, at) => at !== index) });
+    this.log({ kind: 'system', text: `${this.state.dmTitle} drops a house rule: ${describeHouseRule(rule, this.state.system)}` });
+  }
+
+  /** Players' requests waiting for the DM's ruling, oldest first. */
+  pendingRulings(): readonly PendingRuling[] {
+    return [...this.pending];
+  }
+
+  /** Answers a player's request: allow it once, make it a house rule, or no. */
+  answerRuling(id: number, answer: 'once' | 'always' | 'no'): ActionResult {
+    const index = this.pending.findIndex((ruling) => ruling.id === id);
+    const ruling = this.pending[index];
+    if (!ruling) return { ok: false, reason: 'That request has already been answered' };
+    this.pending.splice(index, 1);
+    if (answer === 'no') {
+      this.log({ kind: 'system', text: `${this.state.dmTitle} says no to ${ruling.playerName}: ${ruling.problems.map((problem) => problem.message).join('; ')}` });
+      this.options.onChange?.();
+      return { ok: false, reason: 'Refused' };
+    }
+    const result = this.overrule(ruling.action, answer === 'always');
+    this.options.onChange?.();
+    return result;
+  }
+
   /** The DM may act for any creature. */
   act(action: CombatAction): ActionResult {
     const combat = this.state.combat;
@@ -592,6 +697,26 @@ export class HostSession {
     this.setCombat(result.state, result.events);
   }
 
+  private playerAsksRuling(connection: Connection, player: PlayerRecord, requestId: string, action: CombatAction): void {
+    const combat = this.state.combat;
+    if (!combat) return this.fail(connection, requestId, 'No combat is running');
+    if (!this.controls(player).includes(action.actorId)) {
+      const name = combat.combatants[action.actorId]?.sheet.name ?? action.actorId;
+      return this.fail(connection, requestId, `You don't control ${name}`);
+    }
+    const problems = this.rulingFor(action);
+    // Already allowed (the rules changed since): just do it.
+    if (problems.length === 0) return this.playerAction(connection, player, requestId, action);
+    const stuck = problems.find((problem) => problem.fix === null);
+    if (stuck) return this.fail(connection, requestId, stuck.message);
+    // One open request per player: a new one replaces the last.
+    const previous = this.pending.findIndex((ruling) => ruling.playerId === player.id);
+    if (previous >= 0) this.pending.splice(previous, 1);
+    this.pending.push({ id: this.nextRuling++, playerId: player.id, playerName: player.name, action, problems });
+    this.log({ kind: 'system', text: `${player.name} asks ${this.state.dmTitle} to allow it: ${problems.map((problem) => problem.message).join('; ')}` });
+    this.options.onChange?.();
+  }
+
   private playerChat(
     connection: Connection,
     player: PlayerRecord,
@@ -669,7 +794,7 @@ export class HostSession {
   private combatContext(): CombatContext {
     const system = this.state.system;
     if (!system || !this.worldMap) throw new Error('Set a game system and a map before combat');
-    return { system, map: this.worldMap };
+    return { system, map: this.worldMap, houseRules: this.state.houseRules };
   }
 
   private setCombat(combat: CombatState, events: readonly CombatEvent[]): void {

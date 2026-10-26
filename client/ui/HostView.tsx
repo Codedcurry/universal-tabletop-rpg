@@ -6,6 +6,7 @@ import { demoFight, demoMap, demoSystem } from '../demo';
 import type { HostedGame } from '../net/transport';
 import { ArtPanel } from './ArtPanel';
 import { RulesPanel } from './RulesPanel';
+import { RulingRequests } from './RulingRequests';
 import { CombatPanel } from './CombatPanel';
 import { DiceBox } from './DiceBox';
 import { EncounterPanel, type Placing } from './EncounterPanel';
@@ -177,6 +178,7 @@ export function HostView({ game, combatEvents, lastSaved = null, notice = null }
       <div className={`dm-layout${toolsOpen ? '' : ' tools-hidden'}`}>
         <section className="card map-card" ref={mapCard}>
           <h2>Map</h2>
+          <RulingRequests session={session} />
           <MapEditor
             session={session}
             combatEvents={combatEvents}

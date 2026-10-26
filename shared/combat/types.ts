@@ -2,10 +2,15 @@ import type { DiceTermResult } from '../dice';
 import type { Cell } from '../grid';
 import type { WorldMap } from '../map';
 import type { AbilityAnimation, CreatureSheet, GameSystem } from '../system';
+import type { HouseRule } from './houseRules';
 
 export interface CombatContext {
   readonly system: GameSystem;
   readonly map: WorldMap;
+  /** The DM's house rules, applied on top of the system's. */
+  readonly houseRules?: readonly HouseRule[];
+  /** Rulings for this one action only (the DM allowing it just this once). */
+  readonly overrules?: readonly HouseRule[];
 }
 
 export interface CombatantSetup {

@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { type CombatAction, type CombatContext, type CombatState, abilityReach, moveOptions, targetOptions } from '@shared/combat';
+import {
+  type CombatAction,
+  type CombatContext,
+  type CombatState,
+  type HouseRule,
+  type RuleProblem,
+  abilityReach,
+  actionProblems,
+  moveOptions,
+  targetOptions,
+} from '@shared/combat';
 import { type Cell, cellKey } from '@shared/grid';
 import { type MapData, createWorldMap } from '@shared/map';
 import { type GameSystem, abilityIntent } from '@shared/system';
@@ -8,6 +18,8 @@ import type { HighlightKind, TilePointer } from '../render/WorldView';
 // Playing the fight from the map, shared by players and the DM's Play tool:
 // the active creature's reachable tiles are highlighted and a click moves
 // there; picking an ability highlights its targets and a click attacks.
+// Clicking what the rules refuse (a creature out of range, a tile too far)
+// says why, so the DM can overrule it or a player can ask the DM to.
 
 /** A press that moves less than this (pixels) is a click; more is a drag that pans the view. */
 const CLICK_SLOP = 8;
@@ -16,8 +28,15 @@ interface Options {
   readonly combat: CombatState | null;
   readonly system: GameSystem | null;
   readonly map: MapData | null;
+  /** The DM's house rules, applied on top of the system's. */
+  readonly houseRules?: readonly HouseRule[];
   canControl(combatantId: string): boolean;
   act(action: CombatAction): void;
+}
+
+export interface Refusal {
+  readonly action: CombatAction;
+  readonly problems: readonly RuleProblem[];
 }
 
 export interface CombatPlay {
@@ -34,6 +53,9 @@ export interface CombatPlay {
   readonly reach: readonly Cell[];
   /** Whether that ability hurts or helps, for the reach color. */
   readonly reachKind: 'harm' | 'help';
+  /** Something just tried that the rules refuse: why, and what would allow it. */
+  readonly refusal: Refusal | null;
+  dismissRefusal(): void;
   /** Shows an ability's range without picking it (hovering its button), or stops with null. */
   previewAbility(abilityId: string | null): void;
   selectAbility(abilityId: string): void;
@@ -42,21 +64,31 @@ export interface CombatPlay {
   onTokenClick(combatantId: string): void;
 }
 
-export function useCombatPlay({ combat, system, map, canControl, act }: Options): CombatPlay {
+export function useCombatPlay({ combat, system, map, houseRules, canControl, act }: Options): CombatPlay {
   const context = useMemo<CombatContext | null>(
-    () => (combat && system && map ? { system, map: createWorldMap(map) } : null),
-    [combat !== null, system, map],
+    () => (combat && system && map ? { system, map: createWorldMap(map), ...(houseRules ? { houseRules } : {}) } : null),
+    [combat !== null, system, map, houseRules],
   );
   const activeId = combat?.status === 'active' ? (combat.order[combat.turnIndex] ?? null) : null;
   const actorId = activeId && canControl(activeId) ? activeId : null;
   const [ability, setAbility] = useState<string | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
+  const [refusal, setRefusal] = useState<Refusal | null>(null);
 
   // A new turn, or the action being spent, drops any half-chosen ability.
   useEffect(() => {
     setAbility(null);
     setPreview(null); // the bar may have gone from under the pointer
   }, [actorId, combat?.round, combat?.actionUsed]);
+  // Anything happening (a move, an action, a new turn) answers a refusal.
+  useEffect(() => setRefusal(null), [actorId, combat?.round, combat?.actionUsed, combat?.movementLeft, ability]);
+
+  /** Shows why an action is refused, if it is. */
+  const refuse = (action: CombatAction): void => {
+    if (!context || !combat) return;
+    const problems = actionProblems(context, combat, action);
+    if (problems.length > 0) setRefusal({ action, problems });
+  };
 
   const moves = useMemo(
     () => (context && combat && actorId && !ability ? moveOptions(context, combat, actorId) : new Map()),
@@ -85,7 +117,8 @@ export function useCombatPlay({ combat, system, map, canControl, act }: Options)
   const highlightKind = chosen ? abilityIntent(chosen) : 'move';
 
   const attack = (targetId: string) => {
-    if (!actorId || !ability || !targets.includes(targetId)) return;
+    if (!actorId || !ability) return;
+    if (!targets.includes(targetId)) return refuse({ type: 'useAbility', actorId, abilityId: ability, targetId });
     act({ type: 'useAbility', actorId, abilityId: ability, targetId });
     setAbility(null);
   };
@@ -93,14 +126,23 @@ export function useCombatPlay({ combat, system, map, canControl, act }: Options)
   const clickCell = (cell: Cell) => {
     if (!combat || !actorId) return;
     if (ability) {
-      const target = targets.find((id) => {
+      // A creature there: attack it, or hear why not.
+      const there = Object.keys(combat.combatants).find((id) => {
         const position = combat.combatants[id]?.position;
         return position !== undefined && cellKey(position) === cellKey(cell);
       });
-      if (target) attack(target);
+      if (there) attack(there);
       return;
     }
-    if (moves.has(cellKey(cell))) act({ type: 'move', actorId, to: cell });
+    if (moves.has(cellKey(cell))) {
+      act({ type: 'move', actorId, to: cell });
+      return;
+    }
+    // Too far, or held by a condition: say so, if a ruling could allow it (not for walls or a creature's tile).
+    const occupied = Object.values(combat.combatants).some((creature) => cellKey(creature.position) === cellKey(cell));
+    if (occupied || !context) return;
+    const problems = actionProblems(context, combat, { type: 'move', actorId, to: cell });
+    if (problems.some((problem) => problem.fix)) setRefusal({ action: { type: 'move', actorId, to: cell }, problems });
   };
 
   const pressedAt = useRef<{ x: number; y: number } | null>(null);
@@ -114,12 +156,16 @@ export function useCombatPlay({ combat, system, map, canControl, act }: Options)
     targets,
     reach,
     reachKind,
+    refusal,
+    dismissRefusal: () => setRefusal(null),
     previewAbility: setPreview,
     selectAbility(abilityId) {
       if (!actorId || !system) return;
       const definition = system.abilities.find((entry) => entry.id === abilityId);
       if (definition?.target === 'self') {
-        act({ type: 'useAbility', actorId, abilityId, targetId: actorId });
+        const action: CombatAction = { type: 'useAbility', actorId, abilityId, targetId: actorId };
+        if (context && combat && targetOptions(context, combat, actorId, abilityId).length === 0) refuse(action);
+        else act(action);
         return;
       }
       setAbility((current) => (current === abilityId ? null : abilityId));

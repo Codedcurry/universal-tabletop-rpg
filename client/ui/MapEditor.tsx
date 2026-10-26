@@ -152,6 +152,7 @@ export function MapEditor({ session, combatEvents, editing, toolsSlot, onMapClic
     combat: snapshot.combat,
     system: snapshot.system,
     map,
+    houseRules: snapshot.houseRules,
     canControl: () => true, // the DM may act for any creature
     act: (action) => {
       const result = session.act(action);
@@ -684,7 +685,18 @@ export function MapEditor({ session, combatEvents, editing, toolsSlot, onMapClic
             onPointer={onPointer}
           />
           {!editing && snapshot.combat && snapshot.system && (
-            <CombatHud combat={snapshot.combat} system={snapshot.system} play={play} />
+            <CombatHud
+              combat={snapshot.combat}
+              system={snapshot.system}
+              play={play}
+              ruling={{
+                overrule: (action, always) => {
+                  const result = session.overrule(action, always);
+                  setPlayError(result.ok ? null : result.reason);
+                  play.dismissRefusal();
+                },
+              }}
+            />
           )}
           {!editing && playError && (
             <p className="error" role="alert">

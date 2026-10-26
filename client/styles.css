@@ -1704,3 +1704,19 @@ button.danger {
 [aria-selected='true'] > .rules-count {
   color: #7a1010;
 }
+/* Rulings: a refusal in the combat bar, and players' requests above the DM's map. */
+.hud-refusal,
+.ruling-request {
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin: 8px 0;
+  background: rgba(224, 180, 76, 0.08);
+}
+.hud-refusal p,
+.ruling-request p {
+  margin: 0 0 8px;
+}
+.hud-refusal .row {
+  align-items: center;
+}

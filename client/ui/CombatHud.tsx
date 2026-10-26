@@ -1,13 +1,15 @@
-import { type CSSProperties, useId } from 'react';
-import { type CombatState, targetOptions } from '@shared/combat';
+import { type CSSProperties, useId, useState } from 'react';
+import { type CombatAction, type CombatState, describeHouseRule } from '@shared/combat';
 import { type GameSystem, abilityIntent, computeCreature, levelForXp } from '@shared/system';
 import { placeholderStyle } from '../style/stylePack';
-import type { CombatPlay } from './useCombatPlay';
+import type { CombatPlay, Refusal } from './useCombatPlay';
 
 // The combat bar for whoever may act now: HP, XP, moves left, a big button
 // per ability, and End turn. Fixed to the bottom of the screen on phones.
 // A line under it says what the map highlight means, in the same color:
 // yellow where you can move, red who you can hurt, blue who you can help.
+// Something the rules refuse is explained under it: the DM can allow it
+// once or make it a house rule; a player can ask the DM.
 
 const HINTS = {
   move: { color: 'Yellow', text: ' tiles: where you can move. Tap one to go there.' },
@@ -52,7 +54,62 @@ function Meter({ label, value, max, description, tone }: {
   );
 }
 
-export function CombatHud({ combat, system, play }: { combat: CombatState; system: GameSystem; play: CombatPlay }) {
+/** How the viewer can answer a refusal: the DM overrules it, a player asks the DM. */
+export interface RulingHandlers {
+  overrule?(action: CombatAction, always: boolean): void;
+  ask?(action: CombatAction): void;
+}
+
+/** Why the rules refuse what was just tried, and what the viewer can do about it. */
+function RefusalBox({ refusal, system, ruling, onDismiss }: { refusal: Refusal; system: GameSystem; ruling: RulingHandlers; onDismiss(): void }) {
+  const [asked, setAsked] = useState(false);
+  const fixable = refusal.problems.every((problem) => problem.fix !== null);
+  const kept = refusal.problems.filter((problem) => problem.fix && !problem.nowOnly).map((problem) => describeHouseRule(problem.fix!, system));
+  return (
+    <div className="hud-refusal" role="alert" aria-label="Not allowed">
+      <p>
+        <strong>Not by the rules:</strong> {refusal.problems.map((problem) => problem.message).join('; ')}.
+      </p>
+      <div className="row">
+        {fixable && ruling.overrule && (
+          <>
+            <button type="button" onClick={() => ruling.overrule?.(refusal.action, false)}>
+              Allow just this once
+            </button>
+            {kept.length > 0 && (
+              <button type="button" className="primary" onClick={() => ruling.overrule?.(refusal.action, true)}>
+                Make it a house rule: {kept.join('; ')}
+              </button>
+            )}
+          </>
+        )}
+        {fixable &&
+          ruling.ask &&
+          (asked ? (
+            <span className="muted" role="status">
+              Asked the DM: their answer will show in the log.
+            </span>
+          ) : (
+            <button
+              type="button"
+              className="primary"
+              onClick={() => {
+                ruling.ask?.(refusal.action);
+                setAsked(true);
+              }}
+            >
+              Ask the DM
+            </button>
+          ))}
+        <button type="button" onClick={onDismiss}>
+          {fixable && !asked ? 'Never mind' : 'OK'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function CombatHud({ combat, system, play, ruling = {} }: { combat: CombatState; system: GameSystem; play: CombatPlay; ruling?: RulingHandlers }) {
   const { actorId, context } = play;
   const actor = actorId ? combat.combatants[actorId] : undefined;
   if (!actorId || !actor || !context) return null;
@@ -65,8 +122,6 @@ export function CombatHud({ combat, system, play }: { combat: CombatState; syste
   const abilities = system.abilities.filter((ability) => actor.sheet.abilities.includes(ability.id));
   const moves = combat.movementLeft;
   const chosen = play.ability ? abilities.find((ability) => ability.id === play.ability) : undefined;
-  // A condition (e.g. Stunned) can stop the creature acting at all.
-  const stopped = actor.conditions.some((active) => system.conditions.find((condition) => condition.id === active.id)?.preventsActions);
 
   return (
     <section className="combat-hud" aria-label="Your turn" style={actionColors}>
@@ -90,8 +145,9 @@ export function CombatHud({ combat, system, play }: { combat: CombatState; syste
       </div>
       <div className="hud-abilities">
         {abilities.map((ability) => {
-          // Pickable whenever the action is free, even with nobody in reach: picking shows the range.
-          const usable = !combat.actionUsed && !stopped && (ability.target !== 'self' || targetOptions(context, combat, actorId, ability.id).length > 0);
+          // Pickable whenever the action is free, even with nobody in reach (picking shows the range) or held
+          // by a condition (picking says why not, for the DM to overrule).
+          const usable = !combat.actionUsed;
           return (
             <button
               key={ability.id}
@@ -116,11 +172,12 @@ export function CombatHud({ combat, system, play }: { combat: CombatState; syste
           End turn
         </button>
       </div>
+      {play.refusal && <RefusalBox key={JSON.stringify(play.refusal.action)} refusal={play.refusal} system={system} ruling={ruling} onDismiss={play.dismissRefusal} />}
       {chosen && play.targets.length === 0 ? (
         <p className={`hud-hint ${play.reachKind}`}>
           <span className="swatch" aria-hidden="true" />
           <span>
-            <strong>{HINTS[play.reachKind].color} shading</strong>: {chosen.name}'s range ({chosen.range === 1 ? '1 tile' : `${chosen.range} tiles`}). Nobody is in range: move closer, or pick another.
+            <strong>{HINTS[play.reachKind].color} shading</strong>: {chosen.name}'s range ({chosen.range === 1 ? '1 tile' : `${chosen.range} tiles`}). Nobody is in range: move closer, pick another, or click a creature to see why not.
           </span>
         </p>
       ) : (play.ability || (moves > 0 && play.highlight.length > 0)) && (

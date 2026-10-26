@@ -85,6 +85,8 @@ export function PlayerView({ game, code, error, focus, combatEvents }: Props) {
             art={state.art}
             canControl={(id) => session.status === 'connected' && session.canControl(id)}
             act={(action) => session.act(action)}
+            houseRules={state.houseRules}
+            askRuling={(action) => session.askRuling(action)}
           />
         </section>
       )}

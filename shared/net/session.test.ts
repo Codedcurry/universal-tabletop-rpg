@@ -889,3 +889,100 @@ describe('character art', () => {
     expect(() => network.host.setCharacterArt('goblin', { ...goblinArt, layout: { frameSize: 16, clips: { idle: { down: row(9), left: row(1), right: row(2), up: row(3) } } } })).toThrow(/off the sheet/);
   });
 });
+
+describe('rulings and house rules', () => {
+  /** Ana's turn, with the goblin 4 tiles away: out of reach of her Strike (range 1). */
+  function farGoblin() {
+    const network = createTestNetwork({ dmTitle: 'Keeper' });
+    const ana = network.join('Ana', { character: anaSheet });
+    network.host.setSystem(skirmish);
+    network.host.setMap(map);
+    const anaId = ana.session.playerId as string;
+    network.hostRandom.push(19, 0);
+    network.host.startCombat([network.host.playerSetup(anaId, { q: 2, r: 3 }), { ...goblinSetup(), position: { q: 6, r: 1 } }]);
+    network.flush();
+    const strike: CombatAction = { type: 'useAbility', actorId: `pc-${anaId}`, abilityId: 'strike', targetId: 'goblin' };
+    return { network, ana, strike };
+  }
+
+  it('the DM allows a refused action just this once', () => {
+    const { network, ana, strike } = farGoblin();
+    expect(network.host.rulingFor(strike)).toEqual([
+      { message: 'Goblin is out of range for Strike (range 1)', fix: { kind: 'range', ability: 'strike', extra: 3 } },
+    ]);
+    network.hostRandom.push(19, 0); // a hit, then damage
+    expect(network.host.overrule(strike, false).ok).toBe(true);
+    network.flush();
+    expect(ana.session.state?.combat?.actionUsed).toBe(true);
+    expect(ana.session.state?.houseRules).toEqual([]);
+    expect(texts(ana.session.state?.log ?? [])).toContain('Keeper allows it just this once: Goblin is out of range for Strike (range 1)');
+  });
+
+  it('the DM makes it a house rule: everyone sees it, it applies from then on, and it is saved', () => {
+    const { network, ana, strike } = farGoblin();
+    network.hostRandom.push(19, 0);
+    expect(network.host.overrule(strike, true).ok).toBe(true);
+    network.flush();
+    expect(ana.session.state?.houseRules).toEqual([{ kind: 'range', ability: 'strike', extra: 3 }]);
+    expect(texts(ana.session.state?.log ?? [])).toContain('Keeper makes a house rule: Strike reaches 3 more tiles');
+    // In range now; only the spent action stands in the way.
+    expect(network.host.rulingFor(strike)).toEqual([{ message: 'Ana the Bold has already used an action this turn', fix: null }]);
+
+    const saved = network.host.saveGame('CAVE42');
+    expect(validateSavedGame(JSON.parse(JSON.stringify(saved))).ok).toBe(true);
+    expect(createTestNetwork({ restore: saved }).host.snapshot().houseRules).toEqual([{ kind: 'range', ability: 'strike', extra: 3 }]);
+
+    network.host.removeHouseRule(0);
+    network.flush();
+    expect(ana.session.state?.houseRules).toEqual([]);
+    expect(texts(ana.session.state?.log ?? [])).toContain('Keeper drops a house rule: Strike reaches 3 more tiles');
+  });
+
+  it('a player asks the DM; the DM says no, or allows it', () => {
+    const { network, ana, strike } = farGoblin();
+    ana.session.askRuling(strike);
+    network.flush();
+    const [request] = network.host.pendingRulings();
+    expect(request).toMatchObject({ playerName: 'Ana', action: strike, problems: [{ message: 'Goblin is out of range for Strike (range 1)' }] });
+    expect(texts(ana.session.state?.log ?? [])).toContain('Ana asks Keeper to allow it: Goblin is out of range for Strike (range 1)');
+
+    network.host.answerRuling(request!.id, 'no');
+    network.flush();
+    expect(network.host.pendingRulings()).toEqual([]);
+    expect(texts(ana.session.state?.log ?? [])).toContain('Keeper says no to Ana: Goblin is out of range for Strike (range 1)');
+    expect(ana.session.state?.combat?.actionUsed).toBe(false);
+
+    ana.session.askRuling(strike);
+    network.flush();
+    network.hostRandom.push(19, 0);
+    expect(network.host.answerRuling(network.host.pendingRulings()[0]!.id, 'once').ok).toBe(true);
+    network.flush();
+    expect(ana.session.state?.combat?.actionUsed).toBe(true);
+  });
+
+  it('a player can only ask for what a ruling can change, for creatures they control', () => {
+    const { network, ana, strike } = farGoblin();
+    ana.session.askRuling({ type: 'endTurn', actorId: 'goblin' });
+    network.flush();
+    expect(ana.failures.at(-1)).toMatch(/don't control Goblin/);
+    ana.session.askRuling({ ...strike, abilityId: 'fireball' });
+    network.flush();
+    expect(ana.failures.at(-1)).toMatch(/Unknown ability/);
+    expect(network.host.pendingRulings()).toEqual([]);
+  });
+
+  it('drops house rules about abilities the rules no longer have', () => {
+    const { network, ana, strike } = farGoblin();
+    network.hostRandom.push(19, 0);
+    network.host.overrule(strike, true);
+    network.host.addHouseRule({ kind: 'movement', extra: 1 });
+    const changes = network.host.setSystem({
+      ...skirmish,
+      abilities: skirmish.abilities.filter((ability) => ability.id !== 'strike'),
+      monsters: skirmish.monsters.map((monster) => ({ ...monster, abilities: monster.abilities.filter((ability) => ability !== 'strike') })),
+    });
+    network.flush();
+    expect(changes).toContain('The house rule "Strike reaches 3 more tiles" no longer applies');
+    expect(ana.session.state?.houseRules).toEqual([{ kind: 'movement', extra: 1 }]);
+  });
+});

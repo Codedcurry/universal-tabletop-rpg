@@ -1,5 +1,5 @@
 import type { CustomArt } from '../style/art';
-import type { CombatAction, CombatEvent, CombatState } from '../combat';
+import type { CombatAction, CombatEvent, CombatState, HouseRule } from '../combat';
 import type { RollResult } from '../dice';
 import type { MapPatch } from '../editor';
 import type { Cell } from '../grid';
@@ -12,7 +12,7 @@ import type { CreatureSheet, GameSystem } from '../system';
  * and broadcasts results.
  */
 
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 export const MAX_NAME_LENGTH = 40;
 export const MAX_CHAT_LENGTH = 1000;
@@ -82,6 +82,8 @@ export interface SessionSnapshot {
   readonly art: CustomArt;
   readonly players: readonly PublicPlayer[];
   readonly system: GameSystem | null;
+  /** The DM's rulings kept as house rules, applied on top of the system's (everyone sees them). */
+  readonly houseRules: readonly HouseRule[];
   readonly map: MapData | null;
   readonly combat: CombatState | null;
   readonly log: readonly LogEntry[];
@@ -92,6 +94,7 @@ export type SessionUpdate =
   | { readonly kind: 'settings'; readonly dmTitle: string; readonly rollMode: RollMode; readonly playersControlOwn: boolean; readonly fogOfWar: boolean }
   /** New rules; `combat`, if there is a fight, is it fitted to them, in the same step (so nobody sees new rules with old creatures). */
   | { readonly kind: 'system'; readonly system: GameSystem | null; readonly combat?: CombatState | null }
+  | { readonly kind: 'houseRules'; readonly houseRules: readonly HouseRule[] }
   | { readonly kind: 'map'; readonly map: MapData | null }
   /** A live edit: just the changed tiles and walls. */
   | { readonly kind: 'mapPatch'; readonly patch: MapPatch }
@@ -112,6 +115,8 @@ export type ClientMessage =
   | { readonly type: 'syncRequest' }
   | { readonly type: 'pong' }
   | { readonly type: 'combatAction'; readonly requestId: string; readonly action: CombatAction }
+  /** A player asking the DM to allow an action the rules refuse. */
+  | { readonly type: 'askRuling'; readonly requestId: string; readonly action: CombatAction }
   | { readonly type: 'chat'; readonly requestId: string; readonly text: string; readonly to: ParticipantId | null }
   | {
       readonly type: 'roll';
@@ -211,6 +216,10 @@ export function parseClientMessage(data: unknown): ClientMessage | null {
     case 'combatAction': {
       const action = parseAction(data.action);
       return action ? { type: 'combatAction', requestId, action } : null;
+    }
+    case 'askRuling': {
+      const action = parseAction(data.action);
+      return action ? { type: 'askRuling', requestId, action } : null;
     }
     case 'chat': {
       const { text, to } = data;

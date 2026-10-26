@@ -1,4 +1,5 @@
 import { type ChangeEvent, useState } from 'react';
+import { describeHouseRule } from '@shared/combat';
 import type { HostSession } from '@shared/net';
 import { type GameSystem, blankSystem, describePath, validateGameSystem } from '@shared/system';
 import { SystemEditor } from './SystemEditor';
@@ -6,7 +7,7 @@ import { SystemEditor } from './SystemEditor';
 // The DM tools' Rules tab: the game system in play, at a glance; edit it in
 // the rules editor, start a new one, or save it to a file and load one
 // (homebrew to share, or a backup). A loaded file opens in the editor to be
-// looked over before it's used.
+// looked over before it's used. The DM's house rules are listed, to drop.
 
 /** The file a system is saved as. */
 const FILE_SUFFIX = '.system.json';
@@ -22,7 +23,7 @@ function download(system: GameSystem) {
 }
 
 export function RulesPanel({ session }: { session: HostSession }) {
-  const { system, combat } = session.snapshot();
+  const { system, combat, houseRules } = session.snapshot();
   const [editing, setEditing] = useState<{ system: GameSystem; title: string; note?: string } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -94,6 +95,24 @@ export function RulesPanel({ session }: { session: HostSession }) {
           <input type="file" accept=".json,application/json" aria-label="Load rules from a file" onChange={(event) => void load(event)} />
         </label>
       </div>
+      <h3>House rules</h3>
+      {houseRules.length === 0 ? (
+        <p className="muted small">
+          None yet. When the rules refuse something in a fight (out of range, out of sight, held by a condition, too far to walk), you can allow it just once, or make it a
+          house rule: it's listed here, everyone sees it, and it applies from then on.
+        </p>
+      ) : (
+        <ul className="tile-list" aria-label="House rules">
+          {houseRules.map((rule, index) => (
+            <li key={`${index}:${JSON.stringify(rule)}`}>
+              <span className="grow">{describeHouseRule(rule, system)}</span>
+              <button type="button" aria-label={`Drop house rule: ${describeHouseRule(rule, system)}`} onClick={() => session.removeHouseRule(index)}>
+                Drop
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       <p className="muted small">Rules files hold no art or maps: share your homebrew, or keep a backup. Rules from a book you own are for your own games only.</p>
       {notice && (
         <p className="notice" role="status">

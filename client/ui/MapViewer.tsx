@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { CombatAction, CombatEvent, CombatState } from '@shared/combat';
+import type { CombatAction, CombatEvent, CombatState, HouseRule } from '@shared/combat';
 import type { Cell } from '@shared/grid';
 import { type MapData, createWorldMap } from '@shared/map';
 import type { GameSystem } from '@shared/system';
@@ -21,15 +21,19 @@ interface Props {
   readonly fogOfWar?: boolean;
   /** The DM's own art for the game. */
   readonly art?: CustomArt;
+  /** The DM's house rules. */
+  readonly houseRules?: readonly HouseRule[];
   canControl(combatantId: string): boolean;
   act(action: CombatAction): void;
+  /** Asks the DM to allow something the rules refuse. */
+  askRuling?(action: CombatAction): void;
 }
 
 /** A player's view of the map, updated live as the DM edits; the fight is played from here. */
-export function MapViewer({ map, focus = null, combat, system, combatEvents, fogOfWar = false, art, canControl, act }: Props) {
+export function MapViewer({ map, focus = null, combat, system, combatEvents, fogOfWar = false, art, houseRules, canControl, act, askRuling }: Props) {
   const [hovered, setHovered] = useState<Cell | null>(null);
   const world = useMemo(() => (map ? createWorldMap(map) : null), [map]);
-  const play = useCombatPlay({ combat, system, map, canControl, act });
+  const play = useCombatPlay({ combat, system, map, ...(houseRules ? { houseRules } : {}), canControl, act });
   // A chime when one of this player's creatures gets its turn.
   const myTurn = play.actorId;
   useEffect(() => {
@@ -64,7 +68,7 @@ export function MapViewer({ map, focus = null, combat, system, combatEvents, fog
           play.onPointer(pointer);
         }}
       />
-      {combat && system && <CombatHud combat={combat} system={system} play={play} />}
+      {combat && system && <CombatHud combat={combat} system={system} play={play} ruling={askRuling ? { ask: askRuling } : {}} />}
       <p className="hint">Drag to move the view · wheel or pinch to zoom · Q/E, the turn buttons, or a two-finger twist to turn</p>
       <p className="tile-info" data-testid="tile-info">
         {tileDescription(world, hovered, { fog })}

@@ -117,6 +117,11 @@ export class ClientSession {
     return this.request((requestId) => ({ type: 'combatAction', requestId, action }));
   }
 
+  /** Asks the DM to allow an action the rules refuse (the DM allows it once, makes it a house rule, or says no). */
+  askRuling(action: CombatAction): string | null {
+    return this.request((requestId) => ({ type: 'askRuling', requestId, action }));
+  }
+
   /** Chat to everyone, or whisper to the DM with `to = "dm"`. */
   say(text: string, to: string | null = null): string | null {
     return this.request((requestId) => ({ type: 'chat', requestId, text, to }));
