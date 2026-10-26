@@ -18,3 +18,4 @@ export {
   renameEntryId,
   renameVariableId,
 } from './edit';
+export { type ChangeArea, type RuleChange, combineChanges, diffSystems } from './diff';

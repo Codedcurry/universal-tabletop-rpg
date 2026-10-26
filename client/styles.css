@@ -1777,3 +1777,50 @@ button.danger {
   image-rendering: pixelated;
   border-radius: 4px;
 }
+/* Reviewing new rules: one row per change, with yes or no. */
+.review-area h4 {
+  margin: 14px 0 4px;
+}
+.review-change {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: 8px;
+  margin: 6px 0;
+}
+.review-change.add {
+  border-left-color: var(--online);
+}
+.review-change.change {
+  border-left-color: var(--accent);
+}
+.review-change.remove {
+  border-left-color: var(--danger);
+}
+.review-change.declined {
+  opacity: 0.55;
+}
+.review-change p {
+  margin: 2px 0;
+}
+.review-kind {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.review-kind.add {
+  color: var(--online);
+}
+.review-kind.change {
+  color: var(--accent);
+}
+.review-kind.remove {
+  color: var(--danger);
+}
+.review-tidied ul {
+  margin: 4px 0;
+}

@@ -4,13 +4,15 @@ import type { HostSession } from '@shared/net';
 import { type GameSystem, blankSystem, describePath, validateGameSystem } from '@shared/system';
 import { BookImport } from './BookImport';
 import { LocalAiNotice } from './LocalAiGuide';
+import { RulesReview } from './RulesReview';
 import { SystemEditor } from './SystemEditor';
 
 // The DM tools' Rules tab: the game system in play, at a glance; edit it in
 // the rules editor, start a new one, or save it to a file and load one
 // (homebrew to share, or a backup). A loaded file opens in the editor to be
-// looked over before it's used. A rulebook the DM owns can be read by their
-// AI into a draft, checked in the editor too. The DM's house rules are
+// reviewed before it's used: each change (added, changed, removed) with what
+// it does to the site, accepted or not. A rulebook the DM owns can be read by
+// their AI, and is reviewed the same way. The DM's house rules are
 // listed, to drop.
 
 /** The file a system is saved as. */
@@ -31,6 +33,8 @@ export function RulesPanel({ session }: { session: HostSession }) {
   const [editing, setEditing] = useState<{ system: GameSystem; title: string; note?: string } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
+  /** New rules waiting for the DM to say yes or no to each change. */
+  const [reviewing, setReviewing] = useState<{ system: GameSystem; title: string; notes: readonly string[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const inPlay = combat ? Object.keys(combat.combatants).length : 0;
   const fitNote = inPlay > 0 ? 'Creatures already on the map keep only the stats, abilities, and conditions these rules have.' : undefined;
@@ -39,6 +43,7 @@ export function RulesPanel({ session }: { session: HostSession }) {
     try {
       const changes = session.setSystem(next, renames);
       setEditing(null);
+      setReviewing(null);
       setError(null);
       setNotice(changes.length > 0 ? `Rules updated. ${changes.join('; ')}.` : 'Rules updated.');
     } catch (caught) {
@@ -59,7 +64,7 @@ export function RulesPanel({ session }: { session: HostSession }) {
       }
       setError(null);
       setNotice(null);
-      setEditing({ system: result.system, title: `Load ${result.system.name}`, ...(fitNote ? { note: fitNote } : {}) });
+      setReviewing({ system: result.system, title: `Load ${result.system.name}`, notes: fitNote ? [fitNote] : [] });
     } catch (caught) {
       setError(caught instanceof SyntaxError ? `${file.name} isn't a game system file` : caught instanceof Error ? caught.message : String(caught));
     }
@@ -140,13 +145,26 @@ export function RulesPanel({ session }: { session: HostSession }) {
           onCancel={() => setImporting(false)}
           onDone={(result) => {
             setImporting(false);
-            const checks = result.notes.length > 0 ? ` ${result.notes.join(' ')}` : '';
-            setEditing({
+            setReviewing({
               system: result.system,
               title: `Imported: ${result.system.name}`,
-              note: `Read from your book by AI: check everything before applying it.${checks}${fitNote ? ` ${fitNote}` : ''}`,
+              notes: ['Read from your book by AI: check each change before you say yes.', ...result.notes, ...(fitNote ? [fitNote] : [])],
             });
           }}
+        />
+      )}
+      {reviewing && (
+        <RulesReview
+          current={system}
+          incoming={reviewing.system}
+          title={reviewing.title}
+          notes={reviewing.notes}
+          onApply={(next) => apply(next, {})}
+          onEdit={(next) => {
+            setReviewing(null);
+            setEditing({ system: next, title: reviewing.title, note: 'The changes you said yes to: check them, then apply.' });
+          }}
+          onCancel={() => setReviewing(null)}
         />
       )}
       {editing && (

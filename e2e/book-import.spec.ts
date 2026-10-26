@@ -88,18 +88,26 @@ test('the DM imports a rulebook PDF with their AI, then checks and applies what 
   await expect(importer).toContainText('gloom-rules.pdf: 2 pages');
   await importer.getByRole('button', { name: 'Read the book' }).click();
 
-  // What the AI found opens in the rules editor, to check.
-  const editor = dm.getByRole('dialog', { name: 'Rules editor' });
-  await expect(editor).toContainText('Imported: Gloom Rules');
-  await expect(editor).toContainText('Read from your book by AI: check everything');
+  // What the AI found is reviewed change by change, each with what it does to the site.
+  const review = dm.getByRole('dialog', { name: 'Review the changes' });
+  await expect(review).toContainText('Review the changes: Imported: Gloom Rules');
+  await expect(review).toContainText('Read from your book by AI: check each change before you say yes.');
   expect(prompts).toHaveLength(1);
   expect(prompts[0]).toMatch(/^test-model: Pages 1–2 of the book:/);
   expect(prompts[0]).toContain('BESTIARY: The Gloom Bat bites for 1d4.');
-  await editor.getByRole('tab', { name: 'Monsters' }).click();
-  await expect(editor.getByRole('group', { name: 'Monster Gloom Bat' })).toBeVisible();
-  await editor.getByRole('button', { name: 'Apply to game' }).click();
+  await expect(review.getByRole('group', { name: 'Add Ability: Bite', exact: true })).toContainText('On the site: Adds a Bite button to the combat bar');
+  await expect(review.getByRole('group', { name: 'Add Monster: Gloom Bat', exact: true })).toContainText('Can be added to a fight from the Encounter tab');
+  await expect(review.getByRole('group', { name: 'Remove Monster: Goblin', exact: true })).toBeVisible();
+
+  // Keep the goblins: no to removing them. Their old abilities go, and the review says so.
+  await review.getByRole('group', { name: 'Accept: Remove Monster: Goblin' }).getByRole('button', { name: 'No' }).click();
+  await expect(review).toContainText('Goblin loses abilities that were left out.');
+  const applying = review.getByRole('button', { name: /^Apply \d+ changes$/ });
+  await expect(applying).toBeEnabled();
+  await applying.click();
+  await expect(review).toHaveCount(0);
   await expect(rules).toContainText('Gloom Rules');
-  await expect(rules.getByTestId('rules-summary')).toContainText('1 stats · 1 abilities');
+  await expect(rules.getByTestId('rules-summary')).toContainText('1 stats · 1 abilities · 0 conditions · 2 monsters');
 });
 
 test('without an AI running, the importer says how to set one up', async ({ browser }) => {

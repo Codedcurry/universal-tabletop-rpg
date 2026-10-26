@@ -108,12 +108,14 @@ test('the DM saves the rules to a file and loads a changed copy, looked over bef
   const saved = JSON.parse(await readFile((await download.path())!, 'utf8')) as { name: string; monsters: { name: string }[] };
   expect(saved.monsters.map((monster) => monster.name)).toEqual(['Goblin', 'Ogre']);
 
-  // A homebrew copy, loaded back: it opens in the editor first.
+  // A homebrew copy, loaded back: its changes are reviewed first (here, just the name).
   saved.name = 'Homebrew Skirmish';
   await rules.getByLabel('Load rules from a file').setInputFiles({ name: 'homebrew.system.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(saved)) });
-  const editor = dm.getByRole('dialog', { name: 'Rules editor' });
-  await expect(editor).toContainText('Load Homebrew Skirmish');
-  await editor.getByRole('button', { name: 'Apply to game' }).click();
+  const review = dm.getByRole('dialog', { name: 'Review the changes' });
+  await expect(review).toContainText('Load Homebrew Skirmish');
+  await expect(review.getByTestId('review-summary')).toContainText('0 to add · 1 to change · 0 to remove');
+  await expect(review.getByRole('group', { name: 'Change Name', exact: true })).toContainText('Skirmish → Homebrew Skirmish');
+  await review.getByRole('button', { name: 'Apply 1 change' }).click();
   await expect(rules).toContainText('Homebrew Skirmish');
 
   // Not a rules file: a plain message.
