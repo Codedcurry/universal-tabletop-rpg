@@ -89,6 +89,18 @@ describe('merging and tidying', () => {
     );
   });
 
+  it('takes abilities written out inside a monster, and drops attack rolls on allies', () => {
+    const draft = emptyDraft();
+    mergeExtract(draft, {
+      abilities: [{ name: 'Mend', target: 'ally', attackRoll: '1d20', effects: [{ heal: '1d8' }] }],
+      monsters: [{ name: 'Ash Golem', abilities: [{ name: 'Slam', range: 1, attackRoll: '1d20 + 4', effects: [{ damage: '2d8' }] }, 'Mend'] }],
+    });
+    const { system } = draftToSystem(draft);
+    expect(system.abilities.find((ability) => ability.id === 'mend')).not.toHaveProperty('attack');
+    expect(system.abilities.find((ability) => ability.id === 'slam')?.attack).toEqual({ roll: '1d20 + 4' });
+    expect(system.monsters[0]?.abilities).toEqual(['slam', 'mend']);
+  });
+
   it('leaves what it can\'t fix for the DM: the rules editor points at it', () => {
     const draft = emptyDraft();
     mergeExtract(draft, { stats: [{ name: 'Might', short: 'might' }], defense: '10 + @luck' });

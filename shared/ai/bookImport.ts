@@ -68,7 +68,7 @@ Reply with ONE JSON object and nothing else. Include only what THIS section actu
 Keys (all optional):
 - "name": the game's name.
 - "stats": [{"name": "Strength", "short": "str", "default": 10}] - the numbers every creature has.
-- "derived": [{"name": "Strength modifier", "short": "str_mod", "formula": "floor((@str - 10) / 2)"}] - values worked out from stats and @level (no dice).
+- "derived": [{"name": "Strength modifier", "short": "str_mod", "formula": "floor((@str - 10) / 2)"}] - values worked out from stats and @level (no dice). A bonus that changes with level is one too: "+2 at levels 1-4, +3 at levels 5-8" is {"name": "Proficiency", "short": "prof", "formula": "2 + floor((@level - 1) / 4)"}. Any value a formula uses must be a stat or derived value.
 - "xpForLevel": [0, 300, 900] - total XP needed for level 1, 2, 3...
 - "maxHp": formula for a creature's maximum hit points (no dice), e.g. "8 + @con_mod + (@level - 1) * 5".
 - "defense": formula an attack roll must meet or beat to hit (armor class), e.g. "10 + @dex_mod".
@@ -78,8 +78,8 @@ Keys (all optional):
 - "resources": [{"name": "Mana", "max": "2 + @level", "refill": "fight"}] - points abilities spend; refill is "turn" or "fight".
 - "conditions": [{"name": "Stunned", "description": "...", "preventsActions": true, "preventsMovement": true}]
 - "abilities": [{"name": "Longsword", "description": "...", "range": 1, "target": "enemy", "attackRoll": "1d20 + @str_mod + @prof", "effects": [{"damage": "1d8 + @str_mod"}], "cost": {"Mana": 2}, "reaction": "enemyLeaves"}]
-  target is "enemy", "ally", or "self". range is in tiles (5-foot squares; 1 = touching). effects are any of {"damage": formula}, {"heal": formula}, {"condition": "Stunned", "rounds": 1}, {"restore": "Mana", "amount": formula}. reaction (only for reactions) is "enemyLeaves" or "attacked".
-- "monsters": [{"name": "Goblin", "level": 1, "stats": {"str": 8, "dex": 14}, "abilities": ["Scimitar"], "xp": 50}] - abilities by name; also list each monster attack under "abilities".
+  target is "enemy", "ally", or "self". range is in tiles (5-foot squares; 1 = touching). Give "attackRoll" only if the text says to roll to hit (healing an ally needs none). Copy dice and bonuses exactly as written: add nothing the text doesn't say. effects are any of {"damage": formula}, {"heal": formula}, {"condition": "Stunned", "rounds": 1}, {"restore": "Mana", "amount": formula}. reaction (only for reactions) is "enemyLeaves" or "attacked".
+- "monsters": [{"name": "Goblin", "level": 1, "stats": {"str": 8, "dex": 14}, "abilities": ["Scimitar", {"name": "Bite", "range": 1, "target": "enemy", "attackRoll": "1d20 + 2", "effects": [{"damage": "1d4"}]}], "xp": 50}] - each of its attacks and powers, by name (if described elsewhere) or written out in full like an entry of "abilities".
 
 Formulas: numbers, dice like 1d20 or 2d6, + - * / ( ), floor, ceil, round, min, max, abs, and variables written @short (a stat or derived value's short name, or @level). Use short names that are lowercase letters, digits, and underscores.`;
 
@@ -226,7 +226,15 @@ export function mergeExtract(draft: ImportDraft, reply: Extract): void {
   }
   for (const monster of list(reply.monsters)) {
     const name = text(monster.name);
-    if (name && !draft.monsters.has(key(name))) draft.monsters.set(key(name), monster);
+    if (!name || draft.monsters.has(key(name))) continue;
+    // Abilities written out in the monster join the abilities; the monster keeps their names.
+    const abilities = (Array.isArray(monster.abilities) ? monster.abilities : []).map((ability) => {
+      if (!isObject(ability)) return ability;
+      const abilityName = text(ability.name);
+      if (abilityName && !draft.abilities.has(key(abilityName))) draft.abilities.set(key(abilityName), ability);
+      return abilityName;
+    });
+    draft.monsters.set(key(name), { ...monster, abilities });
   }
 }
 
@@ -322,7 +330,8 @@ export function draftToSystem(draft: ImportDraft): { system: GameSystem; notes: 
     });
     const target: AbilityTarget = raw.target === 'ally' || raw.target === 'self' ? raw.target : 'enemy';
     const range = Math.max(0, whole(raw.range) ?? 1);
-    const attack = formula(raw.attackRoll);
+    // Rolling to hit is for abilities aimed at enemies (an ally or oneself is never "missed").
+    const attack = target === 'enemy' ? formula(raw.attackRoll) : undefined;
     const description = text(raw.description);
     const cost = isObject(raw.cost)
       ? Object.fromEntries(
@@ -344,7 +353,7 @@ export function draftToSystem(draft: ImportDraft): { system: GameSystem; notes: 
       ...(attack ? { attack: { roll: fix(attack) } } : {}),
       // Nothing it does was understood: a stand-in for the DM to correct.
       effects: effects.length > 0 ? effects : [{ type: 'damage', amount: '1d6' }],
-      animation: heals ? 'spell' : range > 1 ? 'ranged' : 'melee',
+      animation: heals || Object.keys(cost).length > 0 ? 'spell' : range > 1 ? 'ranged' : 'melee',
       ...(Object.keys(cost).length > 0 ? { cost } : {}),
       ...(reaction ? { reaction } : {}),
     } satisfies AbilityDef;
