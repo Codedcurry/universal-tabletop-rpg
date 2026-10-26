@@ -6,6 +6,7 @@ import type { GameSystem } from '@shared/system';
 import type { CustomArt } from '@shared/style/art';
 import { sounds } from '../audio/soundEngine';
 import { CombatHud } from './CombatHud';
+import { ReactionPrompt } from './ReactionPrompt';
 import { useCombatPlay } from './useCombatPlay';
 import { useFog } from './useFog';
 import { WorldCanvas, mapSummary, tileDescription } from './WorldCanvas';
@@ -68,6 +69,7 @@ export function MapViewer({ map, focus = null, combat, system, combatEvents, fog
           play.onPointer(pointer);
         }}
       />
+      {combat && system && <ReactionPrompt combat={combat} system={system} canControl={canControl} act={act} />}
       {combat && system && <CombatHud combat={combat} system={system} play={play} ruling={askRuling ? { ask: askRuling } : {}} />}
       <p className="hint">Drag to move the view · wheel or pinch to zoom · Q/E, the turn buttons, or a two-finger twist to turn</p>
       <p className="tile-info" data-testid="tile-info">

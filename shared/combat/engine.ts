@@ -19,6 +19,8 @@ import type {
   CombatEvent,
   CombatState,
   CombatantSetup,
+  HeldAttack,
+  PendingReaction,
 } from './types';
 import { type HouseRule, MAX_RULE_EXTRA, type RuleProblem } from './houseRules';
 
@@ -144,6 +146,7 @@ export class Draft {
   turnIndex: number;
   movementLeft: number;
   actionUsed: boolean;
+  pending: PendingReaction | undefined;
   readonly order: string[];
   readonly combatants: Record<string, Combatant>;
   readonly initiative: Record<string, number>;
@@ -159,6 +162,7 @@ export class Draft {
     this.turnIndex = state.turnIndex;
     this.movementLeft = state.movementLeft;
     this.actionUsed = state.actionUsed;
+    this.pending = state.pending;
     this.order = [...state.order];
     this.combatants = { ...state.combatants };
     this.initiative = { ...state.initiative };
@@ -193,6 +197,7 @@ export class Draft {
     if (combatant.resources && refilled.some((resource) => resource in combatant.resources!)) {
       this.update(id, { resources: Object.fromEntries(Object.entries(combatant.resources).filter(([resource]) => !refilled.includes(resource))) });
     }
+    if (this.get(id).reactionUsed) this.update(id, { reactionUsed: false });
     this.emit({ type: 'turnStarted', combatantId: id, round: this.round });
   }
 
@@ -215,6 +220,7 @@ export class Draft {
   }
 
   toState(): CombatState {
+    const pending = this.livePending();
     return {
       status: this.status,
       winner: this.winner,
@@ -225,7 +231,19 @@ export class Draft {
       actionUsed: this.actionUsed,
       combatants: this.combatants,
       initiative: this.initiative,
+      ...(pending ? { pending } : {}),
     };
+  }
+
+  /** The pending reaction, if the fight is still on and someone it names can still react. */
+  private livePending(): PendingReaction | undefined {
+    const pending = this.pending;
+    if (!pending || this.status !== 'active') return undefined;
+    const options = pending.options.filter((option) => {
+      const reactor = this.combatants[option.reactorId];
+      return reactor !== undefined && standing(reactor);
+    });
+    return options.length > 0 && this.combatants[pending.triggerId] ? { ...pending, options } : undefined;
   }
 }
 
@@ -355,6 +373,16 @@ export function applyAction(
     if (state.status === 'setup') violation("The fight hasn't started yet");
     const draft = new Draft(ctx, state);
     const actor = draft.get(action.actorId);
+    if (state.pending) {
+      const reactorId = state.pending.options[0]?.reactorId ?? '';
+      if ((action.type !== 'react' && action.type !== 'pass') || action.actorId !== reactorId) {
+        violation(`Waiting for ${draft.combatants[reactorId]?.sheet.name ?? 'a reaction'} to react`);
+      }
+      if (action.type === 'react') react(ctx, draft, action.abilityId, random);
+      else declineReaction(ctx, draft, random);
+      return { ok: true, state: draft.toState(), events: draft.events };
+    }
+    if (action.type === 'react' || action.type === 'pass') violation('There is nothing to react to');
     if (state.order[state.turnIndex] !== action.actorId) {
       violation(`It is not ${actor.sheet.name}'s turn`);
     }
@@ -395,6 +423,7 @@ function move(ctx: CombatContext, draft: Draft, actorId: string, to: CombatantSe
   draft.update(actorId, { position: to, facing });
   draft.movementLeft = Math.max(0, budget - path.cost);
   draft.emit({ type: 'moved', combatantId: actorId, path: path.path, cost: path.cost });
+  offerLeaveReactions(ctx, draft, actorId, actor.position, to);
 }
 
 /** Movement allowed just this once, on top of what's left. */
@@ -459,12 +488,26 @@ function useAbility(
 
   const ability = system.abilities.find((entry) => entry.id === abilityId) ?? violation(`Unknown ability "${abilityId}"`);
   if (!actor.sheet.abilities.includes(abilityId)) violation(`${actor.sheet.name} doesn't know ${ability.name}`);
+  if (ability.reaction) violation(`${ability.name} is a reaction: it's used on someone else's turn`);
   const target = draft.get(targetId);
   checkTarget(ctx, ability, actor, target);
   const short = unaffordable(system, actor, ability);
   if (short) violation(`${actor.sheet.name} doesn't have enough ${short.name} (${short.cost} needed, ${short.left} left)`);
 
   draft.actionUsed = true;
+  perform(ctx, draft, actorId, ability, targetId, random, true);
+}
+
+/**
+ * An ability, once allowed: its cost paid, its attack rolled (an attack that
+ * would hit may wait on its target's reaction, when `reactions` is on), and
+ * its effects. Shared by actions and reactions.
+ */
+function perform(ctx: CombatContext, draft: Draft, actorId: string, ability: AbilityDef, targetId: string, random: RandomSource, reactions: boolean): void {
+  const { system } = ctx;
+  const abilityId = ability.id;
+  const actor = draft.get(actorId);
+  const target = draft.get(targetId);
   // The cost is paid now, and reported after the attack roll (so the log reads: the attack, what it cost, what it did).
   const spent: CombatEvent[] = [];
   for (const [resource, amount] of Object.entries(ability.cost ?? {})) {
@@ -475,25 +518,131 @@ function useAbility(
   if (targetId !== actorId) draft.update(actorId, { facing: headingBetween(ctx.map.grid, actor.position, target.position) });
   draft.emit({ type: 'abilityUsed', actorId, abilityId, targetId, animation: ability.animation });
 
-  const actorVars = computeCreature(system, actor.sheet).vars;
-  let critical = false;
-  if (ability.attack) {
-    const attack = roll(ability.attack.roll, actorVars, random);
-    const defense = computeCreature(system, target.sheet).defense;
-    // A natural roll the system calls critical decides it, whatever the total.
-    const natural = naturalRoll(attack.dice);
-    const sure = natural === null ? undefined : system.critical?.miss !== undefined && natural <= system.critical.miss ? 'miss' : system.critical?.hit !== undefined && natural >= system.critical.hit ? 'hit' : undefined;
-    const hit = sure ? sure === 'hit' : attack.value >= defense;
-    critical = sure === 'hit';
-    draft.emit({ type: 'attackRolled', actorId, targetId, total: attack.value, defense, hit, dice: attack.dice, ...(sure ? { critical: sure } : {}) });
+  if (!ability.attack) {
     spent.forEach((event) => draft.emit(event));
-    if (!hit) return;
-  } else {
-    spent.forEach((event) => draft.emit(event));
+    const actorVars = computeCreature(system, actor.sheet).vars;
+    for (const effect of ability.effects) applyEffect(ctx, draft, effect, actorVars, targetId, random);
+    checkForEnd(ctx, draft);
+    return;
   }
 
-  for (const effect of ability.effects) applyEffect(ctx, draft, effect, actorVars, targetId, random, critical);
+  const attack = roll(ability.attack.roll, computeCreature(system, actor.sheet).vars, random);
+  const held: HeldAttack = { actorId, targetId, abilityId, total: attack.value, defense: computeCreature(system, target.sheet).defense, dice: attack.dice };
+  const sure = criticalOf(system, attack.dice);
+  // An attack that would hit waits while its target may react (a shield, a parry).
+  if (reactions && !sure && held.total >= held.defense) {
+    const shields = readyReactions(ctx, target, 'attacked');
+    if (shields.length > 0) {
+      spent.forEach((event) => draft.emit(event));
+      draft.pending = { trigger: 'attacked', triggerId: actorId, options: [{ reactorId: targetId, abilityIds: shields.map((entry) => entry.id) }], attack: held };
+      draft.emit({ type: 'reactionOffered', reactorId: targetId, trigger: 'attacked', triggerId: actorId });
+      return;
+    }
+  }
+  settleAttack(ctx, draft, held, sure, random, spent);
+}
+
+/** Whether an attack's natural roll (the kept die of its first dice term) makes it a sure hit or a sure miss. */
+function criticalOf(system: GameSystem, dice: HeldAttack['dice']): 'hit' | 'miss' | undefined {
+  const natural = naturalRoll(dice);
+  if (natural === null) return undefined;
+  if (system.critical?.miss !== undefined && natural <= system.critical.miss) return 'miss';
+  if (system.critical?.hit !== undefined && natural >= system.critical.hit) return 'hit';
+  return undefined;
+}
+
+/** The rest of an attack once its roll is in (and any reaction to it): hit or miss, what it cost, then its effects. */
+function settleAttack(ctx: CombatContext, draft: Draft, held: HeldAttack, sure: 'hit' | 'miss' | undefined, random: RandomSource, spent: readonly CombatEvent[] = []): void {
+  const ability = ctx.system.abilities.find((entry) => entry.id === held.abilityId);
+  const hit = sure ? sure === 'hit' : held.total >= held.defense;
+  const { actorId, targetId, total, defense, dice } = held;
+  draft.emit({ type: 'attackRolled', actorId, targetId, total, defense, hit, dice, ...(sure ? { critical: sure } : {}) });
+  spent.forEach((event) => draft.emit(event));
+  if (hit && ability && draft.combatants[actorId] && draft.combatants[targetId]) {
+    const actorVars = computeCreature(ctx.system, draft.get(actorId).sheet).vars;
+    for (const effect of ability.effects) applyEffect(ctx, draft, effect, actorVars, targetId, random, sure === 'hit');
+  }
   checkForEnd(ctx, draft);
+}
+
+// ---------------------------------------------------------------------------
+// Reactions
+
+/** A creature's reactions to a trigger that it can use right now (standing, not yet reacted this round, free to act, able to pay). */
+function readyReactions(ctx: CombatContext, creature: Combatant, trigger: 'enemyLeaves' | 'attacked'): AbilityDef[] {
+  if (!standing(creature) || creature.reactionUsed || blockingCondition(ctx, creature, 'preventsActions')) return [];
+  return ctx.system.abilities.filter(
+    (ability) => ability.reaction?.trigger === trigger && creature.sheet.abilities.includes(ability.id) && !unaffordable(ctx.system, creature, ability),
+  );
+}
+
+/** A creature leaving enemies' reach: each enemy (in turn order) with a reaction that reached it may now use one. */
+function offerLeaveReactions(ctx: CombatContext, draft: Draft, moverId: string, from: Cell, to: Cell): void {
+  const mover = draft.get(moverId);
+  const options = draft.order.flatMap((id) => {
+    const reactor = draft.combatants[id];
+    if (!reactor || id === moverId || reactor.side === mover.side) return [];
+    const reaches = readyReactions(ctx, reactor, 'enemyLeaves').filter((ability) => {
+      const range = ability.range + extraRange(ctx, ability.id);
+      return ctx.map.grid.distance(reactor.position, from) <= range && ctx.map.grid.distance(reactor.position, to) > range;
+    });
+    return reaches.length > 0 ? [{ reactorId: id, abilityIds: reaches.map((ability) => ability.id) }] : [];
+  });
+  if (options.length === 0) return;
+  draft.pending = { trigger: 'enemyLeaves', triggerId: moverId, options };
+  draft.emit({ type: 'reactionOffered', reactorId: options[0]!.reactorId, trigger: 'enemyLeaves', triggerId: moverId });
+}
+
+/** The first creature that may react does, with one of its offered reactions. */
+function react(ctx: CombatContext, draft: Draft, abilityId: string, random: RandomSource): void {
+  const pending = draft.pending as PendingReaction;
+  const option = pending.options[0]!;
+  const reactor = draft.get(option.reactorId);
+  const ability = ctx.system.abilities.find((entry) => entry.id === abilityId);
+  if (!ability || !option.abilityIds.includes(abilityId)) violation(`${reactor.sheet.name} can't react with that`);
+  const short = unaffordable(ctx.system, reactor, ability);
+  if (short) violation(`${reactor.sheet.name} doesn't have enough ${short.name} (${short.cost} needed, ${short.left} left)`);
+
+  draft.update(option.reactorId, { reactionUsed: true });
+  // Aimed at the one who set it off (the one leaving, the attacker), or at itself.
+  const targetId = ability.target === 'self' ? option.reactorId : pending.triggerId;
+  const bonus = pending.trigger === 'attacked' ? (ability.reaction?.defense ?? 0) : 0;
+  draft.emit({ type: 'reacted', reactorId: option.reactorId, abilityId, targetId, ...(bonus > 0 ? { defense: bonus } : {}) });
+  if (ability.attack || ability.effects.length > 0) perform(ctx, draft, option.reactorId, ability, targetId, random, false);
+  else payFor(ctx, draft, option.reactorId, ability);
+  nextReaction(ctx, draft, random, bonus);
+}
+
+/** The first creature that may react doesn't. */
+function declineReaction(ctx: CombatContext, draft: Draft, random: RandomSource): void {
+  const option = (draft.pending as PendingReaction).options[0]!;
+  draft.emit({ type: 'reactionDeclined', reactorId: option.reactorId });
+  nextReaction(ctx, draft, random, 0);
+}
+
+/** On to the next creature that may react, or (when none is left) back to the fight: a held attack is settled. */
+function nextReaction(ctx: CombatContext, draft: Draft, random: RandomSource, defenseBonus: number): void {
+  const pending = draft.pending as PendingReaction;
+  if (pending.attack) {
+    draft.pending = undefined;
+    settleAttack(ctx, draft, { ...pending.attack, defense: pending.attack.defense + defenseBonus }, undefined, random);
+    return;
+  }
+  // The rest still able to react, if the one leaving is still standing.
+  const rest = standing(draft.get(pending.triggerId))
+    ? pending.options.slice(1).filter((option) => readyReactions(ctx, draft.get(option.reactorId), pending.trigger).length > 0)
+    : [];
+  draft.pending = rest.length > 0 ? { ...pending, options: rest } : undefined;
+  if (rest[0]) draft.emit({ type: 'reactionOffered', reactorId: rest[0].reactorId, trigger: pending.trigger, triggerId: pending.triggerId });
+}
+
+/** Pays an ability's cost (for a reaction that does nothing else, like a shield). */
+function payFor(ctx: CombatContext, draft: Draft, actorId: string, ability: AbilityDef): void {
+  for (const [resource, amount] of Object.entries(ability.cost ?? {})) {
+    const left = resourceLeft(ctx.system, draft.get(actorId), resource) - amount;
+    draft.update(actorId, { resources: { ...draft.get(actorId).resources, [resource]: left } });
+    draft.emit({ type: 'resourceSpent', combatantId: actorId, resource, amount, left });
+  }
 }
 
 function applyEffect(
@@ -638,7 +787,7 @@ export function targetOptions(ctx: CombatContext, state: CombatState, actorId: s
   const actor = canAct(state, actorId);
   if (!actor || state.actionUsed || blockingCondition(ctx, actor, 'preventsActions')) return [];
   const ability = ctx.system.abilities.find((entry) => entry.id === abilityId);
-  if (!ability || !actor.sheet.abilities.includes(abilityId) || unaffordable(ctx.system, actor, ability)) return [];
+  if (!ability || ability.reaction || !actor.sheet.abilities.includes(abilityId) || unaffordable(ctx.system, actor, ability)) return [];
   return Object.entries(state.combatants)
     .filter(([, target]) => {
       try {
@@ -684,6 +833,12 @@ export function actionProblems(ctx: CombatContext, state: CombatState, action: C
   const actor = state.combatants[action.actorId];
   if (state.status !== 'active') return [{ message: 'The fight hasn\'t started', fix: null }];
   if (!actor) return [{ message: 'No such creature', fix: null }];
+  if (state.pending) {
+    const reactorId = state.pending.options[0]?.reactorId;
+    if ((action.type === 'react' || action.type === 'pass') && action.actorId === reactorId) return [];
+    return [{ message: `Waiting for ${state.combatants[reactorId ?? '']?.sheet.name ?? 'a reaction'} to react`, fix: null }];
+  }
+  if (action.type === 'react' || action.type === 'pass') return [{ message: 'There is nothing to react to', fix: null }];
   if (state.order[state.turnIndex] !== action.actorId) return [{ message: `It is not ${actor.sheet.name}'s turn`, fix: null }];
   if (!standing(actor)) return [{ message: `${actor.sheet.name} is down`, fix: null }];
 

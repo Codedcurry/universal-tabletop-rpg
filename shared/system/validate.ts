@@ -262,8 +262,20 @@ export function validateGameSystem(data: unknown): ValidationResult {
       const attack = requireObject(ability, 'attack', path);
       if (attack) requireFormula(attack, 'roll', child(path, 'attack'), variables, { dice: true });
     }
-    if (Array.isArray(ability.effects) && ability.effects.length === 0) {
+    // A reaction that only raises defense needs no other effect.
+    const raisesDefense = isObject(ability.reaction) && isInteger(ability.reaction.defense);
+    if (Array.isArray(ability.effects) && ability.effects.length === 0 && !raisesDefense) {
       fail(child(path, 'effects'), 'Must have at least one effect');
+    }
+    if (ability.reaction !== undefined) {
+      const reaction = requireObject(ability, 'reaction', path);
+      if (reaction) {
+        if (reaction.trigger !== 'enemyLeaves' && reaction.trigger !== 'attacked') fail(child(child(path, 'reaction'), 'trigger'), 'Must be enemyLeaves or attacked');
+        if (reaction.defense !== undefined) {
+          if (reaction.trigger !== 'attacked') fail(child(child(path, 'reaction'), 'defense'), 'Only a reaction to being attacked can add to defense');
+          else requireInteger(reaction, 'defense', child(path, 'reaction'), 1);
+        }
+      }
     }
     eachObject(ability, 'effects', path, (effect, effectPath) => {
       if (!EFFECT_TYPES.has(effect.type as string)) {

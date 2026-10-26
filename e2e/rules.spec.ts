@@ -197,3 +197,55 @@ test('the DM adds Mana and makes Shoot cost 2: it shows, is spent, refuses when 
   await expect(ana.getByTestId('log').getByText('DM changes Ana: Mana 1 → 3')).toBeVisible();
   await expect(bar.getByRole('meter', { name: 'Mana' })).toHaveAccessibleDescription('3 of 3');
 });
+
+test('reactions: the DM gives Ana a Shield; a goblin\'s sure hit waits for her, and her Shield turns it into a miss', async ({ browser }) => {
+  const { dm, ana } = await table(browser, { width: 5, height: 4 });
+  await dm.getByRole('tab', { name: 'Rules' }).click();
+  await dm.getByRole('tabpanel', { name: 'Rules' }).getByRole('button', { name: 'Edit rules' }).click();
+  const editor = dm.getByRole('dialog', { name: 'Rules editor' });
+  await editor.getByRole('tab', { name: 'Abilities' }).click();
+  const abilities = editor.getByRole('tabpanel', { name: 'Abilities' });
+
+  // Shoot always hits (unless shielded).
+  const shoot = abilities.getByRole('group', { name: 'Ability Shoot' });
+  await shoot.locator('summary').click();
+  await shoot.getByLabel(/^Attack roll/).fill('1d20 + 30');
+
+  // Shield: a reaction to being hit, +50 defense, nothing else.
+  await abilities.getByRole('button', { name: 'Add an ability' }).click();
+  await abilities.getByRole('group', { name: 'Ability New ability' }).getByLabel(/^Name/).fill('Shield');
+  const shield = abilities.getByRole('group', { name: 'Ability Shield', exact: true });
+  await shield.getByLabel(/^Used as/).selectOption('attacked');
+  await shield.getByLabel(/^Adds to defense/).fill('50');
+  await shield.getByLabel(/Needs an attack roll/).uncheck();
+  await shield.getByRole('button', { name: 'Remove effect 1' }).click();
+  await editor.getByRole('button', { name: 'Apply to game' }).click();
+  await expect(editor).toHaveCount(0);
+
+  // The fight; the DM gives Ana the Shield.
+  await dm.getByRole('button', { name: 'Start demo fight' }).click();
+  await expect(ana.getByTestId('turn-banner')).toContainText('Round 1');
+  await dm.getByRole('tab', { name: 'Encounter' }).click();
+  const encounter = dm.getByRole('tabpanel', { name: 'Encounter' });
+  await encounter.locator('.roster-entry').filter({ hasText: 'Ana' }).click();
+  const creature = encounter.getByRole('group', { name: 'Edit Ana' });
+  await creature.locator('summary', { hasText: 'Abilities' }).click();
+  await creature.getByLabel('Shield', { exact: true }).check();
+  await creature.getByRole('button', { name: 'Save changes' }).click();
+
+  // Goblin 1 shoots Ana: it would hit, so the fight waits for her.
+  for (let i = 0; i < 4 && !(await ana.getByTestId('turn-banner').textContent())?.includes("Goblin 1's turn"); i++) {
+    await dm.getByRole('button', { name: 'End turn' }).click();
+    await ana.waitForTimeout(150);
+  }
+  const bar = dm.getByRole('region', { name: 'Your turn' });
+  await bar.getByRole('button', { name: /^Shoot/ }).click();
+  await dm.getByRole('button', { name: 'Target Ana' }).click();
+  const prompt = ana.getByRole('group', { name: 'Ana can react' });
+  await expect(prompt).toContainText(/Goblin 1's Shoot would hit Ana/);
+  await prompt.getByRole('button', { name: 'Shield (+50 defense)' }).click();
+  await expect(prompt).toHaveCount(0);
+  await expect(ana.getByTestId('log').getByText('Ana reacts: Shield (+50 defense)')).toBeVisible();
+  await expect(ana.getByTestId('log').getByText(/Goblin 1 attacks Ana: \d+ vs defense \d+, miss/)).toBeVisible();
+  await expect(ana.getByTestId('token').filter({ hasText: 'Ana' }).getByRole('meter')).toHaveAccessibleName('Ana: 9 of 9 HP');
+});

@@ -18,6 +18,10 @@ function describeAction(action: CombatAction, session: HostSession): string {
     }
     case 'endTurn':
       return `${name(action.actorId)}: end turn`;
+    case 'react':
+      return `${name(action.actorId)}: react`;
+    case 'pass':
+      return `${name(action.actorId)}: don't react`;
   }
 }
 

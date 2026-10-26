@@ -119,7 +119,10 @@ export function CombatHud({ combat, system, play, ruling = {} }: { combat: Comba
   const level = levelForXp(system, actor.sheet.xp);
   const floor = thresholds[level - 1] ?? 0;
   const next = thresholds[level];
-  const abilities = system.abilities.filter((ability) => actor.sheet.abilities.includes(ability.id));
+  // Reactions aren't actions: they're listed apart, ready or used this round.
+  const known = system.abilities.filter((ability) => actor.sheet.abilities.includes(ability.id));
+  const abilities = known.filter((ability) => !ability.reaction);
+  const reactions = known.filter((ability) => ability.reaction);
   const moves = combat.movementLeft;
   const chosen = play.ability ? abilities.find((ability) => ability.id === play.ability) : undefined;
 
@@ -187,6 +190,11 @@ export function CombatHud({ combat, system, play, ruling = {} }: { combat: Comba
           End turn
         </button>
       </div>
+      {reactions.length > 0 && (
+        <p className="hud-reactions muted small" data-testid="reactions">
+          Reactions ({actor.reactionUsed ? 'used this round' : 'ready'}): {reactions.map((ability) => ability.name).join(', ')}
+        </p>
+      )}
       {play.refusal && <RefusalBox key={JSON.stringify(play.refusal.action)} refusal={play.refusal} system={system} ruling={ruling} onDismiss={play.dismissRefusal} />}
       {chosen && play.targets.length === 0 ? (
         <p className={`hud-hint ${play.reachKind}`}>

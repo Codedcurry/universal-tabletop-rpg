@@ -571,6 +571,45 @@ export function SystemEditor({
                   </select>
                 </Field>
               </div>
+              <div className="row">
+                <Field label="Used as" error={errorAt(`abilities[${index}].reaction.trigger`)}>
+                  <select
+                    value={ability.reaction?.trigger ?? 'action'}
+                    onChange={(event) =>
+                      update((now) => {
+                        const { reaction: _reaction, ...rest } = now.abilities[index]!;
+                        const trigger = event.target.value;
+                        return {
+                          ...now,
+                          abilities: at(now.abilities, index, trigger === 'action' ? rest : { ...rest, reaction: { trigger: trigger as 'enemyLeaves' | 'attacked' } }),
+                        };
+                      })
+                    }
+                  >
+                    <option value="action">an action, on its turn</option>
+                    <option value="enemyLeaves">a reaction: when an enemy leaves its reach</option>
+                    <option value="attacked">a reaction: when an attack would hit it</option>
+                  </select>
+                </Field>
+                {ability.reaction?.trigger === 'attacked' && (
+                  <Field label="Adds to defense against that attack" error={errorAt(`abilities[${index}].reaction.defense`)}>
+                    <input
+                      type="number"
+                      min={0}
+                      placeholder="0"
+                      value={ability.reaction.defense ?? ''}
+                      onChange={(event) =>
+                        update((now) => {
+                          const current = now.abilities[index]!;
+                          const value = Number(event.target.value);
+                          const reaction = { trigger: 'attacked' as const, ...(event.target.value !== '' && value !== 0 ? { defense: value } : {}) };
+                          return { ...now, abilities: at(now.abilities, index, { ...current, reaction }) };
+                        })
+                      }
+                    />
+                  </Field>
+                )}
+              </div>
               <Field label="Description" error={errorAt(`abilities[${index}].description`)} wide>
                 <input
                   value={ability.description ?? ''}

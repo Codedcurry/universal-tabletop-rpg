@@ -47,6 +47,32 @@ export interface Combatant {
   readonly facing: number;
   /** Resource points left, by id; a resource left out is full. */
   readonly resources?: Readonly<Record<string, number>>;
+  /** It has used its reaction this round (it gets it back at the start of its turn). */
+  readonly reactionUsed?: boolean;
+}
+
+/** An attack waiting on its target's reaction (a shield): rolled, not yet decided. */
+export interface HeldAttack {
+  readonly actorId: string;
+  readonly targetId: string;
+  readonly abilityId: string;
+  readonly total: number;
+  readonly defense: number;
+  readonly dice: readonly DiceTermResult[];
+}
+
+/**
+ * The fight waits while creatures may react to something: each in turn
+ * reacts (with one of `abilityIds`) or doesn't, then the fight goes on.
+ */
+export interface PendingReaction {
+  readonly trigger: 'enemyLeaves' | 'attacked';
+  /** Who set it off: the one leaving, or the attacker. */
+  readonly triggerId: string;
+  /** Who may react, first one first, and with which reactions. */
+  readonly options: readonly { readonly reactorId: string; readonly abilityIds: readonly string[] }[];
+  /** For `attacked`: the attack, settled once the target has reacted or not. */
+  readonly attack?: HeldAttack;
 }
 
 /** The whole fight. Plain data, so the DM can sync it to players and save it. */
@@ -64,12 +90,18 @@ export interface CombatState {
   readonly combatants: Readonly<Record<string, Combatant>>;
   /** Initiative totals, so creatures added mid-fight slot into the order. Empty before the fight. */
   readonly initiative: Readonly<Record<string, number>>;
+  /** Creatures that may react right now: nothing else happens until they do (or don't). */
+  readonly pending?: PendingReaction;
 }
 
 export type CombatAction =
   | { readonly type: 'move'; readonly actorId: string; readonly to: Cell }
   | { readonly type: 'useAbility'; readonly actorId: string; readonly abilityId: string; readonly targetId: string }
-  | { readonly type: 'endTurn'; readonly actorId: string };
+  | { readonly type: 'endTurn'; readonly actorId: string }
+  /** A creature that may react does, with one of its reactions. */
+  | { readonly type: 'react'; readonly actorId: string; readonly abilityId: string }
+  /** A creature that may react doesn't. */
+  | { readonly type: 'pass'; readonly actorId: string };
 
 /**
  * Everything that happens, in order. The animation state machine, damage
@@ -116,6 +148,10 @@ export type CombatEvent =
   | { readonly type: 'resourceRestored'; readonly targetId: string; readonly resource: string; readonly amount: number; readonly left: number; readonly dice: readonly DiceTermResult[] }
   /** `amount` is the HP actually restored, after capping at max HP. */
   | { readonly type: 'healed'; readonly targetId: string; readonly amount: number; readonly hp: number; readonly dice: readonly DiceTermResult[] }
+  /** A creature may react (the fight waits for it). */
+  | { readonly type: 'reactionOffered'; readonly reactorId: string; readonly trigger: 'enemyLeaves' | 'attacked'; readonly triggerId: string }
+  | { readonly type: 'reacted'; readonly reactorId: string; readonly abilityId: string; readonly targetId: string; readonly defense?: number }
+  | { readonly type: 'reactionDeclined'; readonly reactorId: string }
   | { readonly type: 'downed'; readonly targetId: string }
   | { readonly type: 'revived'; readonly targetId: string }
   | { readonly type: 'conditionApplied'; readonly targetId: string; readonly conditionId: string; readonly rounds: number }

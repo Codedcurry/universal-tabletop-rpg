@@ -12,7 +12,7 @@ import type { CreatureSheet, GameSystem } from '../system';
  * and broadcasts results.
  */
 
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 export const MAX_NAME_LENGTH = 40;
 export const MAX_CHAT_LENGTH = 1000;
@@ -182,6 +182,10 @@ function parseAction(value: unknown): CombatAction | null {
       return { type: 'useAbility', actorId, abilityId: value.abilityId, targetId: value.targetId };
     case 'endTurn':
       return { type: 'endTurn', actorId };
+    case 'react':
+      return isString(value.abilityId, 64) ? { type: 'react', actorId, abilityId: value.abilityId } : null;
+    case 'pass':
+      return { type: 'pass', actorId };
     default:
       return null;
   }

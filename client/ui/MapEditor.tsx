@@ -28,6 +28,7 @@ import type { HostSession } from '@shared/net';
 import type { CombatEvent } from '@shared/combat';
 import type { TilePointer } from '../render/WorldView';
 import { CombatHud } from './CombatHud';
+import { ReactionPrompt } from './ReactionPrompt';
 import { useCombatPlay } from './useCombatPlay';
 import { TERRAINS, placeholderStyle } from '../style/stylePack';
 import { WorldCanvas, mapSummary, tileDescription } from './WorldCanvas';
@@ -684,6 +685,17 @@ export function MapEditor({ session, combatEvents, editing, toolsSlot, onMapClic
             onFocusEveryone={(cell) => session.focusPlayers(cell)}
             onPointer={onPointer}
           />
+          {!editing && snapshot.combat && snapshot.system && (
+            <ReactionPrompt
+              combat={snapshot.combat}
+              system={snapshot.system}
+              canControl={() => true} // the DM may answer for any creature
+              act={(action) => {
+                const result = session.act(action);
+                setPlayError(result.ok ? null : result.reason);
+              }}
+            />
+          )}
           {!editing && snapshot.combat && snapshot.system && (
             <CombatHud
               combat={snapshot.combat}

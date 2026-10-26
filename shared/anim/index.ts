@@ -178,6 +178,10 @@ export function scheduleCombatEvents(
       case 'healed':
         say(event.targetId, `+${event.amount}`, 'heal', impact);
         break;
+      case 'reacted':
+        // A shield going up.
+        if (event.defense) say(event.reactorId, `+${event.defense} defense`, 'status', cursor);
+        break;
       case 'revived':
         add({ combatantId: event.targetId, clip: 'idle', start: impact, duration: 0 });
         break;

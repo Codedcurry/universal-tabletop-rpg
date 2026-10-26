@@ -125,6 +125,20 @@ export interface AbilityDef {
   readonly animation: AbilityAnimation;
   /** Resource points it spends, by resource id ("mana": 3). */
   readonly cost?: Readonly<Record<string, number>>;
+  /** A reaction, used on someone else's turn when its trigger happens (once a round), not as an action. */
+  readonly reaction?: ReactionDef;
+}
+
+/**
+ * When a reaction can be used. `enemyLeaves`: an enemy moves out of its
+ * range (an attack of opportunity, aimed at the one leaving). `attacked`: an
+ * attack roll would hit it (a shield or parry: `defense` is added against
+ * that attack; effects aimed at an enemy hit the attacker, like a riposte).
+ */
+export interface ReactionDef {
+  readonly trigger: 'enemyLeaves' | 'attacked';
+  /** For `attacked`: added to its defense against the triggering attack. */
+  readonly defense?: number;
 }
 
 export type EffectDef =

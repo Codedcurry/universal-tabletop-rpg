@@ -1723,3 +1723,18 @@ button.danger {
 .hud-meter.resource .hud-meter-fill {
   background: #5aa8f0;
 }
+/* Reactions: the prompt for whoever may react, and the wait for everyone else. */
+.reaction-prompt,
+.reaction-wait {
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin: 8px 0;
+  background: rgba(224, 180, 76, 0.12);
+}
+.reaction-prompt p {
+  margin: 0 0 8px;
+}
+.hud-reactions {
+  margin: 6px 0 0;
+}

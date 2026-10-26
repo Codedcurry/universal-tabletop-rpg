@@ -72,6 +72,22 @@ export function describeCombatEvents(events: readonly CombatEvent[], context: De
       case 'healed':
         game(`${nameOf(event.targetId)} heals ${event.amount} (${event.hp} HP)`, 'heal');
         break;
+      case 'reactionOffered':
+        game(
+          event.trigger === 'attacked'
+            ? `${nameOf(event.reactorId)} can react to ${nameOf(event.triggerId)}'s attack`
+            : `${nameOf(event.reactorId)} can react to ${nameOf(event.triggerId)} leaving`,
+        );
+        break;
+      case 'reacted':
+        game(
+          `${nameOf(event.reactorId)} reacts: ${abilityName(event.abilityId)}${event.defense ? ` (+${event.defense} defense)` : ''}`,
+          'action',
+        );
+        break;
+      case 'reactionDeclined':
+        game(`${nameOf(event.reactorId)} doesn't react`);
+        break;
       case 'downed':
         game(`${nameOf(event.targetId)} is down!`, 'damage');
         break;

@@ -284,6 +284,8 @@ const FIELD_NAMES: Readonly<Record<string, string>> = {
   abilities: 'abilities',
   stats: 'stats',
   refill: 'refill',
+  reaction: 'reaction',
+  trigger: 'trigger',
   resource: 'resource',
 };
 
