@@ -2,7 +2,6 @@ import { type ChangeEvent, useState } from 'react';
 import { describeHouseRule } from '@shared/combat';
 import type { HostSession } from '@shared/net';
 import { type GameSystem, blankSystem, describePath, validateGameSystem } from '@shared/system';
-import { BookImport } from './BookImport';
 import { LocalAiNotice } from './LocalAiGuide';
 import { RulesReview } from './RulesReview';
 import { SystemEditor } from './SystemEditor';
@@ -11,8 +10,8 @@ import { SystemEditor } from './SystemEditor';
 // the rules editor, start a new one, or save it to a file and load one
 // (homebrew to share, or a backup). A loaded file opens in the editor to be
 // reviewed before it's used: each change (added, changed, removed) with what
-// it does to the site, accepted or not. A rulebook the DM owns can be read by
-// their AI, and is reviewed the same way. The DM's house rules are
+// it does to the site, accepted or not. Rules from the DM's own books are read
+// in the Books tab, and reviewed the same way. The DM's house rules are
 // listed, to drop.
 
 /** The file a system is saved as. */
@@ -28,11 +27,10 @@ function download(system: GameSystem) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export function RulesPanel({ session }: { session: HostSession }) {
+export function RulesPanel({ session, onOpenBooks }: { session: HostSession; onOpenBooks?: () => void }) {
   const { system, combat, houseRules } = session.snapshot();
   const [editing, setEditing] = useState<{ system: GameSystem; title: string; note?: string } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [importing, setImporting] = useState(false);
   /** New rules waiting for the DM to say yes or no to each change. */
   const [reviewing, setReviewing] = useState<{ system: GameSystem; title: string; notes: readonly string[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -124,8 +122,8 @@ export function RulesPanel({ session }: { session: HostSession }) {
         </ul>
       )}
       <div className="row">
-        <button type="button" onClick={() => setImporting(true)}>
-          Import from a rulebook (AI)
+        <button type="button" onClick={() => onOpenBooks?.()}>
+          Read rules from your books (AI)
         </button>
       </div>
       <LocalAiNotice />
@@ -139,19 +137,6 @@ export function RulesPanel({ session }: { session: HostSession }) {
         <p className="error" role="alert">
           {error}
         </p>
-      )}
-      {importing && (
-        <BookImport
-          onCancel={() => setImporting(false)}
-          onDone={(result) => {
-            setImporting(false);
-            setReviewing({
-              system: result.system,
-              title: `Imported: ${result.system.name}`,
-              notes: ['Read from your book by AI: check each change before you say yes.', ...result.notes, ...(fitNote ? [fitNote] : [])],
-            });
-          }}
-        />
       )}
       {reviewing && (
         <RulesReview

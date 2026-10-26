@@ -438,7 +438,13 @@ export interface ImportResult {
 export async function importRulebook(
   pages: readonly string[],
   provider: AiProvider,
-  options: { signal?: StopSignal; onProgress?: (progress: ImportProgress) => void; maxChars?: number } = {},
+  options: {
+    signal?: StopSignal;
+    onProgress?: (progress: ImportProgress) => void;
+    maxChars?: number;
+    /** A name for each page, when the pages come from several books ("Player's Book, page 12"). */
+    pageNames?: readonly string[];
+  } = {},
 ): Promise<ImportResult> {
   const sections = sectionsOf(pages, options.maxChars);
   const draft = emptyDraft();
@@ -448,7 +454,9 @@ export async function importRulebook(
     options.onProgress?.({ done: index, total: sections.length, section });
     const reply = await provider.complete({
       system: IMPORT_INSTRUCTIONS,
-      prompt: `Pages ${section.from}${section.to === section.from ? '' : `–${section.to}`} of the book:\n\n${section.text}`,
+      prompt: options.pageNames
+        ? `${options.pageNames[section.from - 1] ?? `Page ${section.from}`}${section.to === section.from ? '' : ` to ${options.pageNames[section.to - 1] ?? section.to}`}:\n\n${section.text}`
+        : `Pages ${section.from}${section.to === section.from ? '' : `–${section.to}`} of the book:\n\n${section.text}`,
       json: true,
       ...(options.signal ? { signal: options.signal } : {}),
     });

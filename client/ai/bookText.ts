@@ -6,8 +6,9 @@
 /** Characters per "page" of a plain text file. */
 const TEXT_PAGE = 3000;
 
-export async function readBookPages(file: File): Promise<string[]> {
-  if (isPdf(file)) return readPdf(file);
+/** A book's text, page by page; `onPage` hears how far a long PDF has got. */
+export async function readBookPages(file: File, onPage?: (page: number, pages: number) => void): Promise<string[]> {
+  if (isPdf(file)) return readPdf(file, onPage);
   const text = await file.text();
   // Form feeds mark pages, where a text file has them.
   if (text.includes('\f')) return text.split('\f');
@@ -25,7 +26,7 @@ async function loadPdfjs() {
 
 export const isPdf = (file: File) => file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
 
-async function readPdf(file: File): Promise<string[]> {
+async function readPdf(file: File, onPage?: (page: number, pages: number) => void): Promise<string[]> {
   const pdfjs = await loadPdfjs();
   const loading = pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) });
   let pdf;
@@ -36,6 +37,7 @@ async function readPdf(file: File): Promise<string[]> {
   }
   const pages: string[] = [];
   for (let number = 1; number <= pdf.numPages; number++) {
+    if (number % 10 === 0) onPage?.(number, pdf.numPages);
     const content = await (await pdf.getPage(number)).getTextContent();
     pages.push(content.items.map((item) => ('str' in item ? `${item.str}${item.hasEOL ? '\n' : ' '}` : '')).join(''));
   }

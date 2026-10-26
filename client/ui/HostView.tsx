@@ -1,10 +1,12 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { type CombatEvent } from '@shared/combat';
 import { type Cell, cellKey } from '@shared/grid';
+import type { MapData } from '@shared/map';
 import type { RollMode } from '@shared/net';
 import { demoFight, demoMap, demoSystem } from '../demo';
 import type { HostedGame } from '../net/transport';
 import { ArtPanel } from './ArtPanel';
+import { BooksPanel } from './BooksPanel';
 import { RulesPanel } from './RulesPanel';
 import { RulingRequests } from './RulingRequests';
 import { CombatPanel } from './CombatPanel';
@@ -23,11 +25,12 @@ const ROLL_MODES: { value: RollMode; label: string }[] = [
   { value: 'physical', label: 'Players use real dice' },
 ];
 
-type Tab = 'encounter' | 'map' | 'rules' | 'art' | 'session';
+type Tab = 'encounter' | 'map' | 'rules' | 'books' | 'art' | 'session';
 const TABS: { id: Tab; label: string }[] = [
   { id: 'encounter', label: 'Encounter' },
   { id: 'map', label: 'Map' },
   { id: 'rules', label: 'Rules' },
+  { id: 'books', label: 'Books' },
   { id: 'art', label: 'Art' },
   { id: 'session', label: 'Session' },
 ];
@@ -48,6 +51,8 @@ export function HostView({ game, combatEvents, lastSaved = null, notice = null }
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [tab, setTab] = useState<Tab>('map');
+  /** A map made in the Books tab, for the map editor to put in place. */
+  const [incomingMap, setIncomingMap] = useState<{ map: MapData; key: number } | null>(null);
   const [toolsOpen, setToolsOpen] = useState(true);
   const [toolsSlot, setToolsSlot] = useState<HTMLElement | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -186,6 +191,8 @@ export function HostView({ game, combatEvents, lastSaved = null, notice = null }
             editing={editing}
             toolsSlot={toolsSlot}
             onMapClick={onMapClick}
+            incomingMap={incomingMap}
+            onOpenBooks={() => setTab('books')}
             mapOverlay={
               placing ? (
                 <div className="stroke-hint" role="status">
@@ -242,7 +249,11 @@ export function HostView({ game, combatEvents, lastSaved = null, notice = null }
             <div role="tabpanel" aria-label="Map" hidden={tab !== 'map'} ref={setToolsSlot} />
 
             <div role="tabpanel" aria-label="Rules" hidden={tab !== 'rules'}>
-              <RulesPanel session={session} />
+              <RulesPanel session={session} onOpenBooks={() => setTab('books')} />
+            </div>
+
+            <div role="tabpanel" aria-label="Books" hidden={tab !== 'books'}>
+              <BooksPanel session={session} onUseMap={(map) => setIncomingMap((now) => ({ map, key: (now?.key ?? 0) + 1 }))} />
             </div>
 
             <div role="tabpanel" aria-label="Art" hidden={tab !== 'art'}>

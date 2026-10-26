@@ -28,7 +28,6 @@ import type { HostSession } from '@shared/net';
 import type { CombatEvent } from '@shared/combat';
 import type { TilePointer } from '../render/WorldView';
 import { CombatHud } from './CombatHud';
-import { MapFromBook } from './MapFromBook';
 import { ReactionPrompt } from './ReactionPrompt';
 import { useCombatPlay } from './useCombatPlay';
 import { TERRAINS, placeholderStyle } from '../style/stylePack';
@@ -118,12 +117,16 @@ interface Props {
   onMapClick?(cell: Cell): boolean;
   /** Shown over the map (e.g. "Click a tile to place Goblin"). */
   readonly mapOverlay?: ReactNode;
+  /** A map made elsewhere (the Books tab), to put in place as one undoable change; `key` changes for each new one. */
+  readonly incomingMap?: { readonly map: MapData; readonly key: number } | null;
+  /** Opens the Books tab (maps from the DM's books are made there). */
+  onOpenBooks?(): void;
 }
 
 /** A press that moves less than this (pixels) is a click, not a drag. */
 const CLICK_SLOP = 8;
 
-export function MapEditor({ session, combatEvents, editing, toolsSlot, onMapClick, mapOverlay }: Props) {
+export function MapEditor({ session, combatEvents, editing, toolsSlot, onMapClick, mapOverlay, incomingMap = null, onOpenBooks }: Props) {
   const snapshot = session.snapshot();
   const map = snapshot.map;
   const [tool, setTool] = useState<Tool>('raise');
@@ -144,7 +147,6 @@ export function MapEditor({ session, combatEvents, editing, toolsSlot, onMapClic
   const [hovered, setHovered] = useState<Cell | null>(null);
   const [touchEdits, setTouchEdits] = useState(true);
   const [panel, setPanel] = useState<'none' | 'new' | 'generate' | 'examples'>('none');
-  const [fromBook, setFromBook] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   /** Bumped to re-frame the camera after a new map. */
@@ -210,15 +212,23 @@ export function MapEditor({ session, combatEvents, editing, toolsSlot, onMapClic
     }
   }
 
+  // A map from the Books tab: put in place like any other, so Undo brings the old one back.
+  const lastIncoming = useRef(0);
+  useEffect(() => {
+    if (!incomingMap || incomingMap.key === lastIncoming.current) return;
+    lastIncoming.current = incomingMap.key;
+    replaceMap(incomingMap.map);
+  }, [incomingMap]);
+
   /** Replaces the whole map (new, generated, imported) as one undoable change when possible. */
   function replaceMap(next: MapData): void {
     const current = session.snapshot().map;
     try {
-      if (current && current.grid === next.grid) {
+      if (current) {
+        // One undoable change (a change of grid swaps the whole map).
         session.editMap(diffMaps(current, next));
         setHistory((h) => recordChange(h, current, next));
       } else {
-        // A different grid type can't be patched; start a fresh history.
         session.setMap(next);
         setHistory(EMPTY_HISTORY);
       }
@@ -580,7 +590,7 @@ export function MapEditor({ session, combatEvents, editing, toolsSlot, onMapClic
             <button type="button" aria-expanded={panel === 'examples'} onClick={() => setPanel(panel === 'examples' ? 'none' : 'examples')}>
               Examples
             </button>
-            <button type="button" onClick={() => setFromBook(true)}>
+            <button type="button" onClick={() => onOpenBooks?.()}>
               From a book (AI)
             </button>
           </div>
@@ -614,16 +624,6 @@ export function MapEditor({ session, combatEvents, editing, toolsSlot, onMapClic
       {panel === 'new' && <NewMapPanel onCreate={replaceMap} />}
       {panel === 'generate' && <GeneratePanel onCreate={replaceMap} />}
       {panel === 'examples' && <ExamplesPanel onLoad={replaceMap} />}
-      {fromBook && (
-        <MapFromBook
-          grid={map?.grid}
-          onCancel={() => setFromBook(false)}
-          onUse={(next) => {
-            setFromBook(false);
-            replaceMap(next);
-          }}
-        />
-      )}
       {noteCell && (
         <NoteEditor
           key={cellKey(noteCell)}

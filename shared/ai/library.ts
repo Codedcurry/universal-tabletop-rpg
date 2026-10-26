@@ -52,7 +52,7 @@ const sameName = (a: string, b: string) => {
 export function findAreas(pages: readonly string[]): BookArea[] {
   const found = new Map<string, BookArea>();
   // A key, then capitalised words (THE BLACK TOMB, ALCHEMIST’S LABORATORY), ending before a word in lower case.
-  const heading = /(?:^|\s)(\d{1,3})\s+((?:[A-Z][A-Z’'\-]+)(?:(?:\s+|\s*[—–]\s*)[A-Z][A-Z’'\-]+){0,5})(?=\s+[A-Z]?[a-z(]|\s*$)/g;
+  const heading = /(?:^|\s)(\d{1,3})\s+((?:[A-Z][A-Z’'\-]+)(?:(?:\s+|\s*[—–]\s*)[A-Z][A-Z’'\-]+){0,5})(?=\s+(?:[A-Z]?[a-z(]|[A-Z]\s)|\s*[.:,]|\s*$)/g;
   pages.forEach((text, index) => {
     if (text.length < MAP_PAGE_TEXT) return;
     for (const match of text.matchAll(heading)) {

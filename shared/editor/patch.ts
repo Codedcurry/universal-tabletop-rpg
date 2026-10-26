@@ -25,6 +25,8 @@ export interface MapPatch {
   readonly removeWalls: readonly WallData[];
   /** The map's own objects, all of them, when they change. */
   readonly objects?: readonly CustomObject[];
+  /** A whole new map, for a change of grid (square to hex), which tiles can't describe. */
+  readonly replace?: MapData;
 }
 
 export const EMPTY_PATCH: MapPatch = { tiles: [], removeTiles: [], addWalls: [], removeWalls: [] };
@@ -35,7 +37,8 @@ export function isEmptyPatch(patch: MapPatch): boolean {
     patch.removeTiles.length === 0 &&
     patch.addWalls.length === 0 &&
     patch.removeWalls.length === 0 &&
-    patch.objects === undefined
+    patch.objects === undefined &&
+    patch.replace === undefined
   );
 }
 
@@ -101,6 +104,7 @@ export function blankMap(
 
 /** The patch that turns `before` into `after`. */
 export function diffMaps(before: MapData, after: MapData): MapPatch {
+  if (before.grid !== after.grid) return { ...EMPTY_PATCH, replace: after };
   const beforeTiles = new Map(before.tiles.map((tile) => [cellKey(tile), tile]));
   const afterKeys = new Set(after.tiles.map(cellKey));
   const beforeWalls = new Set(before.walls.map(wallKey));
@@ -121,6 +125,7 @@ export function diffMaps(before: MapData, after: MapData): MapPatch {
 
 /** Applies a patch and returns the new map in canonical form. Throws MapError if the result is invalid. */
 export function applyPatch(map: MapData, patch: MapPatch): MapData {
+  if (patch.replace) return createWorldMap(patch.replace).toData();
   const tiles = new Map(map.tiles.map((tile) => [cellKey(tile), tile]));
   for (const cell of patch.removeTiles) tiles.delete(cellKey(cell));
   for (const tile of patch.tiles) tiles.set(cellKey(tile), tile);

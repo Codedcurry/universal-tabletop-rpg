@@ -56,3 +56,15 @@ describe('a map\'s own objects', () => {
     expect(back?.map).not.toHaveProperty('objects');
   });
 });
+
+describe('a change of grid', () => {
+  it('is one patch (the whole map), and undoes back to the old grid', () => {
+    const square = map();
+    const hex: MapData = { formatVersion: 1, grid: 'hex', tiles: rectangleTiles('hex', 3, 2).map((cell) => ({ ...cell, height: 1 })), walls: [] };
+    const patch = diffMaps(square, hex);
+    expect(patch.replace?.grid).toBe('hex');
+    const after = applyPatch(square, patch);
+    expect(after.grid).toBe('hex');
+    expect(undo(recordChange(EMPTY_HISTORY, square, after), after)?.map).toEqual(createWorldMap(square).toData());
+  });
+});

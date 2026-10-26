@@ -1824,3 +1824,13 @@ button.danger {
 .review-tidied ul {
   margin: 4px 0;
 }
+/* The Books tab. */
+.books-section {
+  margin-top: 16px;
+}
+.books-section h3 {
+  margin: 0 0 4px;
+}
+.books-panel > details.panel {
+  padding: 8px 12px;
+}
