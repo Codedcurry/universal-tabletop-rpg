@@ -66,3 +66,36 @@ export async function renderPdfPages(file: File, from: number, to: number): Prom
   await loading.destroy();
   return pictures;
 }
+
+/** A map page: its picture (and pixels, to trace), and where its text sits (labels), in the picture's pixels. */
+export interface MapPage {
+  readonly picture: string;
+  readonly pixels: ImageData;
+  readonly words: readonly { readonly text: string; readonly x: number; readonly y: number }[];
+}
+
+/** One PDF page as a map: drawn as a picture, with its words' positions. */
+export async function readMapPage(file: File, number: number): Promise<MapPage> {
+  const pdfjs = await loadPdfjs();
+  const loading = pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) });
+  try {
+    const page = await (await loading.promise).getPage(number);
+    const base = page.getViewport({ scale: 1 });
+    const viewport = page.getViewport({ scale: PICTURE_SIDE / Math.max(base.width, base.height) });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(viewport.width);
+    canvas.height = Math.round(viewport.height);
+    await page.render({ canvas, viewport }).promise;
+    const content = await page.getTextContent();
+    const words = content.items.flatMap((item) => {
+      if (!('str' in item) || item.str.trim() === '') return [];
+      // The middle of the text, in the picture's pixels.
+      const [x, y] = viewport.convertToViewportPoint(item.transform[4] + item.width / 2, item.transform[5] + item.height / 2);
+      return [{ text: item.str.trim(), x, y }];
+    });
+    const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
+    return { picture: canvas.toDataURL('image/png').split(',')[1] ?? '', pixels: ctx.getImageData(0, 0, canvas.width, canvas.height), words };
+  } finally {
+    await loading.destroy();
+  }
+}

@@ -1,6 +1,7 @@
 import { type Cell, type GridKind, cell } from '../grid';
 import { type CustomObject, MAP_FORMAT_VERSION, MAX_CUSTOM_OBJECTS, MAX_HEIGHT, MAX_OBJECT_PARTS, type MapData, type ObjectPart, type TileData, createWorldMap, objectInfo } from '../map';
 import { idFrom } from '../system';
+import { type TracedMap, tracedText } from './trace';
 import type { AiProvider, StopSignal } from './provider';
 import { readJsonReply } from './bookImport';
 
@@ -97,18 +98,71 @@ export function buildFromReply(reply: string, grid?: GridKind): MapPlanResult | 
  * and objects left out (and noted), walls and doors laid. On `gridKind` if
  * given (the current map's, so the change can be undone), else the plan's.
  */
-export function buildMapFromPlan(plan: Data, gridKind?: GridKind): MapPlanResult {
+/** Where in an area an object goes, by a word: the anchor point as a share of the area's box (0 is the north or west side). */
+const SPOTS: Readonly<Record<string, readonly [number, number]>> = {
+  centre: [0.5, 0.5],
+  center: [0.5, 0.5],
+  middle: [0.5, 0.5],
+  north: [0.5, 0],
+  south: [0.5, 1],
+  east: [1, 0.5],
+  west: [0, 0.5],
+  northeast: [1, 0],
+  northwest: [0, 0],
+  southeast: [1, 1],
+  southwest: [0, 1],
+};
+
+/** A free square of an area nearest a spot in it ("north", "centre"), or by the area's door ("door"). */
+function spotIn(cells: readonly { x: number; y: number }[], where: string, free: (x: number, y: number) => boolean, doorway: (x: number, y: number) => boolean) {
+  const open = cells.filter((cell) => free(cell.x, cell.y));
+  if (open.length === 0) return undefined;
+  const xs = cells.map((cell) => cell.x);
+  const ys = cells.map((cell) => cell.y);
+  const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+  const word = where.toLowerCase().replace(/[^a-z]/g, '');
+  const byDoor = word.includes('door') || word.includes('entr');
+  const share = SPOTS[word] ?? (word.includes('north') ? SPOTS.north : word.includes('south') ? SPOTS.south : word.includes('east') ? SPOTS.east : word.includes('west') ? SPOTS.west : SPOTS.centre)!;
+  const target = { x: x0 + (x1 - x0) * share[0], y: y0 + (y1 - y0) * share[1] };
+  const score = (cell: { x: number; y: number }) => (byDoor ? (doorway(cell.x, cell.y) ? 0 : 100) : 0) + Math.hypot(cell.x - target.x, cell.y - target.y);
+  return open.reduce((best, cell) => (score(cell) < score(best) ? cell : best));
+}
+
+export function buildMapFromPlan(plan: Data, gridKind?: GridKind, base?: TracedMap, areaCells?: Readonly<Record<string, readonly { x: number; y: number }[]>>): MapPlanResult {
   const notes: string[] = [];
   if (typeof plan.notes === 'string' && plan.notes.trim()) notes.push(plan.notes.trim());
   const grid: GridKind = gridKind ?? (plan.grid === 'hex' ? 'hex' : 'square');
-  const width = clamp(whole(plan.width) ?? 16, PLAN_MIN_SIZE, PLAN_MAX_SIZE);
-  const height = clamp(whole(plan.height) ?? 12, PLAN_MIN_SIZE, PLAN_MAX_SIZE);
-  if (width !== whole(plan.width) || height !== whole(plan.height)) notes.push(`The map is ${width} by ${height} tiles (kept within ${PLAN_MIN_SIZE} to ${PLAN_MAX_SIZE}).`);
-  const ground = terrainOf(plan.ground) ?? 'grass';
-
   const tiles = new Map<string, { x: number; y: number; terrain: string; height: number; blocked: boolean; object?: string }>();
-  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) tiles.set(`${x},${y}`, { x, y, terrain: ground, height: 0, blocked: false });
+  if (base) {
+    // A traced map: its walls and floor as traced (outside left out, unless it's all outdoors).
+    const floor = terrainOf(plan.ground) ?? (base.outdoor ? 'grass' : 'stone');
+    base.cells.forEach((cell, index) => {
+      const x = index % base.width;
+      const y = Math.floor(index / base.width);
+      if (cell === 'outside' && !base.outdoor) return;
+      tiles.set(`${x},${y}`, cell === 'wall' ? { x, y, terrain: 'stone', height: 2, blocked: true } : { x, y, terrain: floor, height: 0, blocked: false });
+    });
+  } else {
+    const width = clamp(whole(plan.width) ?? 16, PLAN_MIN_SIZE, PLAN_MAX_SIZE);
+    const height = clamp(whole(plan.height) ?? 12, PLAN_MIN_SIZE, PLAN_MAX_SIZE);
+    if (width !== whole(plan.width) || height !== whole(plan.height)) notes.push(`The map is ${width} by ${height} tiles (kept within ${PLAN_MIN_SIZE} to ${PLAN_MAX_SIZE}).`);
+    const ground = terrainOf(plan.ground) ?? 'grass';
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) tiles.set(`${x},${y}`, { x, y, terrain: ground, height: 0, blocked: false });
+  }
   const tileAt = (x: number, y: number) => tiles.get(`${x},${y}`);
+  /** The nearest free tile (on a traced map, an object put on a wall goes to the floor beside it). */
+  const freeNear = (x: number, y: number) => {
+    const exact = tileAt(x, y);
+    if (exact && !exact.blocked) return exact;
+    if (!base) return undefined;
+    for (let reach = 1; reach <= 2; reach++) {
+      for (let dy = -reach; dy <= reach; dy++) for (let dx = -reach; dx <= reach; dx++) {
+        const tile = tileAt(x + dx, y + dy);
+        if (tile && !tile.blocked && !tile.object) return tile;
+      }
+    }
+    return undefined;
+  };
 
   // Objects made for this map: kept small and valid, named, given ids.
   const made = madeObjects(plan.newObjects);
@@ -130,7 +184,8 @@ export function buildMapFromPlan(plan: Data, gridKind?: GridKind): MapPlanResult
         ? (x, y) => (x - x0) ** 2 + (y - y0) ** 2 <= (whole(area.r) ?? 1) ** 2 + 0.5
         : (x, y) => x >= x0 && y >= y0 && x < x0 + (whole(area.w) ?? 1) && y < y0 + (whole(area.h) ?? 1);
     for (const tile of tiles.values()) {
-      if (!inside(tile.x, tile.y)) continue;
+      // On a traced map the walls stay as they are.
+      if (!inside(tile.x, tile.y) || (base && tile.blocked)) continue;
       if (terrain) tile.terrain = terrain;
       if (level !== undefined) tile.height = level;
     }
@@ -139,7 +194,7 @@ export function buildMapFromPlan(plan: Data, gridKind?: GridKind): MapPlanResult
   // Walls: solid stone tiles, two levels above the ground beside them; doors are gaps.
   const doors = new Set(list(plan.doors).map((door) => `${whole(door.x)},${whole(door.y)}`));
   let crooked = 0;
-  for (const wall of list(plan.walls)) {
+  for (const wall of base ? [] : list(plan.walls)) {
     const [x1, y1, x2, y2] = [whole(wall.x1), whole(wall.y1), whole(wall.x2), whole(wall.y2)];
     if (x1 === undefined || y1 === undefined || x2 === undefined || y2 === undefined) continue;
     if (x1 !== x2 && y1 !== y2) crooked++;
@@ -158,7 +213,24 @@ export function buildMapFromPlan(plan: Data, gridKind?: GridKind): MapPlanResult
   if (crooked > 0) notes.push(`${crooked} slanted wall${crooked === 1 ? ' was' : 's were'} laid as a line of tiles: check ${crooked === 1 ? 'it' : 'them'}.`);
 
   for (const object of list(plan.objects)) {
-    const tile = tileAt(whole(object.x) ?? -1, whole(object.y) ?? -1);
+    // By area and spot ("25", "centre"), where the map's areas are known; else by square.
+    const areaKey = object.area === undefined ? undefined : String(object.area).replace(/[^0-9a-z]/gi, '');
+    const cells = areaKey ? areaCells?.[areaKey] : undefined;
+    const spot = cells
+      ? spotIn(
+          cells,
+          typeof object.where === 'string' ? object.where : 'centre',
+          (x, y) => {
+            const tile = tileAt(x, y);
+            return tile !== undefined && !tile.blocked && !tile.object;
+          },
+          (x, y) => [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => {
+            const next = tileAt(x + dx!, y + dy!);
+            return next !== undefined && !next.blocked && !cells.some((cell) => cell.x === x + dx! && cell.y === y + dy!);
+          }),
+        )
+      : undefined;
+    const tile = spot ? tileAt(spot.x, spot.y) : freeNear(whole(object.x) ?? -1, whole(object.y) ?? -1);
     const kind = typeof object.kind === 'string' ? object.kind : '';
     const info = kindOf(kind);
     if (!info) {
@@ -230,6 +302,105 @@ function madeObjects(value: unknown): CustomObject[] {
       taken.add(id);
       return [{ id, name, blocks: raw.blocks === true, blocksSight: raw.blocksSight === true, parts }];
     });
+}
+
+/**
+ * Each labelled area's floor squares: the room (floor joined up between
+ * walls) its label is in, or nearest. Two labels in one room share it.
+ */
+export function areasOf(traced: TracedMap, labels: readonly MapLabel[]): Record<string, { x: number; y: number }[]> {
+  const room = new Int32Array(traced.cells.length).fill(-1);
+  const rooms: { x: number; y: number }[][] = [];
+  traced.cells.forEach((cell, start) => {
+    if (cell !== 'floor' || room[start] !== -1) return;
+    const cells: { x: number; y: number }[] = [];
+    const stack = [start];
+    room[start] = rooms.length;
+    while (stack.length > 0) {
+      const at = stack.pop() as number;
+      const x = at % traced.width;
+      const y = Math.floor(at / traced.width);
+      cells.push({ x, y });
+      for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]] as const) {
+        const next = ny * traced.width + nx;
+        if (nx >= 0 && ny >= 0 && nx < traced.width && ny < traced.height && traced.cells[next] === 'floor' && room[next] === -1) {
+          room[next] = rooms.length;
+          stack.push(next);
+        }
+      }
+    }
+    rooms.push(cells);
+  });
+  const found: Record<string, { x: number; y: number }[]> = {};
+  for (const label of labels) {
+    let best = { index: -1, distance: Infinity };
+    rooms.forEach((cells, index) => {
+      for (const cell of cells) {
+        const distance = Math.hypot(cell.x - label.x, cell.y - label.y);
+        if (distance < best.distance) best = { index, distance };
+      }
+    });
+    if (best.index >= 0 && best.distance <= 3) found[label.key] = rooms[best.index]!;
+  }
+  return found;
+}
+
+/** Where an area's label sits on a traced map, in its squares. */
+export interface MapLabel {
+  readonly key: string;
+  readonly name: string;
+  readonly x: number;
+  readonly y: number;
+}
+
+/** Instructions for furnishing a map traced from a book's picture. */
+export const FURNISH_INSTRUCTIONS = `You furnish a battle map traced from a tabletop RPG book the user owns. Its walls and floors are already laid out; you add what the book says is in each area.
+You get: the map as rows of characters (# wall, . floor, space outside), "row y:" before each, x being the column from 0 at the left; the areas, with the squares each covers; and the areas' descriptions.
+Reply with ONE JSON object and nothing else:
+{"layout": "In words first: for each area, its squares (around its label, bounded by walls), and what goes where in it.",
+ "name": "Lower Crypts",
+ "areas": [{"terrain": "water", "x": 4, "y": 6, "w": 2, "h": 1}],
+ "newObjects": [{"name": "Obsidian sarcophagus", "blocks": true, "blocksSight": false, "parts": [{"shape": "box", "size": [0.5, 0.5, 0.9], "color": "#1a1820"}, {"shape": "box", "size": [0.5, 0.06, 0.9], "at": [0, 0.5, 0], "color": "#7cff4a", "glow": true}]}],
+ "objects": [{"kind": "Obsidian sarcophagus", "area": "25", "where": "centre"}, {"kind": "statue", "area": "24", "where": "north"}, {"kind": "statue", "area": "24", "where": "north"}],
+ "notes": "What you assumed."}
+- Give each object its area (the area's number) and where in it: centre, north, south, east, west, northeast, northwest, southeast, southwest (north is up), or door (by the area's doorway). The square is worked out for you. Add one object entry per item (two statues: two entries). Put each item in the area the text describes it in.
+- "areas" only changes the floor: terrain is one of grass, dirt, sand, stone, water, snow, wood (wood is a wooden floor); "height" in levels of about 5 feet. Leave it empty if the floor is plain.
+- objects: kind is one of ${objectList}, or the name of one of your newObjects.
+- newObjects: things the areas need that aren't in that list (an altar, a sarcophagus, a book on a stand, a cage, a brazier), especially anything the players can take, use, or fight over. Build each from 1 to 8 simple parts: shape is box, cylinder, cone, or sphere; size is [width, height, depth] in tiles (1 = a whole tile; a person is about 0.4 wide and 1 tall); "at" is where the part's bottom middle sits, [across, up, along] from the tile's centre; color is #rrggbb; "glow": true for magic, flames, and crystals. "blocks": whether no one can stand there; "blocksSight": whether it's tall enough to hide what's behind it.`;
+
+/**
+ * Asks the user's AI to furnish a traced map from the areas' descriptions.
+ * Returns the map (or, if the reply can't be used, the traced map bare).
+ */
+export async function furnishMap(
+  provider: AiProvider,
+  traced: TracedMap,
+  options: { labels?: readonly MapLabel[]; text: string; grid?: GridKind; signal?: StopSignal },
+): Promise<MapPlanResult> {
+  const rows = tracedText(traced)
+    .split('\n')
+    .map((row, y) => `row ${y}: ${row}`)
+    .join('\n');
+  // Each area: the floor squares joined to its label (rooms are split by walls, so a room is one area).
+  const areaCells = areasOf(traced, options.labels ?? []);
+  const labels = (options.labels ?? [])
+    .map((label) => {
+      const cells = areaCells[label.key] ?? [];
+      if (cells.length === 0) return `${label.key} ${label.name}: around x ${label.x}, y ${label.y}`;
+      const xs = cells.map((cell) => cell.x);
+      const ys = cells.map((cell) => cell.y);
+      return `${label.key} ${label.name}: x ${Math.min(...xs)}-${Math.max(...xs)}, y ${Math.min(...ys)}-${Math.max(...ys)} (${cells.length} squares)`;
+    })
+    .join('\n');
+  const reply = await provider.complete({
+    system: FURNISH_INSTRUCTIONS,
+    prompt: `The map (${traced.width} squares across, ${traced.height} down):\n${rows}\n\nWhere the areas are:\n${labels || '(no labels found)'}\n\nThe areas, from the book:\n\n${options.text.slice(0, MAP_TEXT_CHARS)}`,
+    json: true,
+    ...(options.signal ? { signal: options.signal } : {}),
+  });
+  const plan = readJsonReply(reply);
+  const built = buildMapFromPlan(plan ?? {}, options.grid, traced, areaCells);
+  return plan ? built : { ...built, notes: ["The AI's answer couldn't be read: here is the traced map, to furnish by hand.", ...built.notes] };
 }
 
 /**

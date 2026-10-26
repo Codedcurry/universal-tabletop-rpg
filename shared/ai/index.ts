@@ -25,3 +25,7 @@ export {
   planMap,
   previewTiles,
 } from './mapPlan';
+export { type MapLabel, FURNISH_INSTRUCTIONS, areasOf, furnishMap } from './mapPlan';
+export { type TracedCell, type TracedMap, findGrid, traceMap, tracedText } from './trace';
+export { type BookArea, type BookMap, areaText, findAreas, findMaps } from './library';
+export { placeLabels } from './labels';

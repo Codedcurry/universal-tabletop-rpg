@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createWorldMap } from '../map';
-import { type AiProvider, type AiRequest, buildFromReply, buildMapFromPlan, planMap, previewTiles } from './index';
+import { type AiProvider, type AiRequest, areasOf, buildFromReply, buildMapFromPlan, placeLabels, planMap, previewTiles } from './index';
 
 // Maps from a book: the AI writes a map plan (rows and columns: ground,
 // areas, walls with doors, objects) from an encounter's text or a picture of
@@ -156,5 +156,73 @@ describe('objects the plan makes', () => {
     expect(tree?.id).toBe('tree_made');
     expect(tree?.parts[0]).toMatchObject({ shape: 'box', size: [3, 1, 1], color: '#8a8790' });
     expect(result.map.objects?.map((object) => object.name)).not.toContain('Unused cage');
+  });
+});
+
+describe('furnishing a traced map', () => {
+  // Two rooms: a west room (x 1-3) and an east room (x 5-7), rows 1-3, split by a wall, with a doorway at (4, 2).
+  const rows = ['#########', '#...#...#', '#.......#', '#...#...#', '#########'];
+  const traced = {
+    width: 9,
+    height: 5,
+    cells: rows.join('').split('').map((c) => (c === '#' ? 'wall' : 'floor')) as ('wall' | 'floor')[],
+    square: 20,
+    origin: { x: 0, y: 0 },
+    outdoor: false,
+  };
+  const labels = [
+    { key: '1', name: 'West Room', x: 2, y: 2 },
+    { key: '2', name: 'East Room', x: 6, y: 1 },
+  ];
+
+  it('knows each area\'s squares: the room its label is in', () => {
+    // The doorway joins the rooms into one: both labels share it.
+    const areas = areasOf(traced, labels);
+    expect(areas['1']).toHaveLength(19);
+    const split = { ...traced, cells: traced.cells.map((cell, at) => (at === 2 * 9 + 4 ? 'wall' : cell)) as ('wall' | 'floor')[] };
+    expect(areasOf(split, labels)['2']?.every((cell) => cell.x >= 5)).toBe(true);
+  });
+
+  it('keeps the traced walls, and places objects by area and spot', () => {
+    const split = { ...traced, cells: traced.cells.map((cell, at) => (at === 2 * 9 + 4 ? 'wall' : cell)) as ('wall' | 'floor')[] };
+    const result = buildMapFromPlan(
+      {
+        areas: [{ terrain: 'water', x: 0, y: 0, w: 9, h: 1 }],
+        objects: [
+          { kind: 'chest', area: '2', where: 'northeast' },
+          { kind: 'barrel', area: '1', where: 'centre' },
+          { kind: 'crate', area: '1', where: 'centre' },
+          { kind: 'statue', x: 0, y: 0 },
+        ],
+      },
+      'square',
+      split,
+      areasOf(split, labels),
+    );
+    const at = (x: number, y: number) => previewTiles(result.map).find((tile) => tile.x === x && tile.y === y);
+    expect(at(0, 0)).toMatchObject({ terrain: 'stone', blocked: true }); // walls stay walls
+    expect(at(7, 1)?.object).toBe('chest');
+    expect(at(2, 2)?.object).toBe('barrel');
+    // The centre was taken: the crate goes beside it.
+    expect(previewTiles(result.map).filter((tile) => tile.object === 'crate')).toHaveLength(1);
+    // Put on a wall by square: moved to the floor beside it.
+    expect(at(1, 1)?.object).toBe('statue');
+  });
+});
+
+describe('placeLabels', () => {
+  it('pins each area\'s label (its key beside a word of its name) to the map\'s squares', () => {
+    const traced = { width: 10, height: 10, cells: new Array(100).fill('floor'), square: 20, origin: { x: 100, y: 50 }, outdoor: false } as const;
+    const words = [
+      { text: 'Black Tomb', x: 230, y: 115 },
+      { text: '25', x: 190, y: 115 },
+      { text: '25', x: 500, y: 900 }, // a page number, far away
+      { text: 'Antechamber', x: 230, y: 215 },
+      { text: '24', x: 185, y: 215 },
+    ];
+    expect(placeLabels(words, [{ key: '25', name: 'The Black Tomb', page: 40 }, { key: '24', name: 'Antechamber', page: 39 }], traced)).toEqual([
+      { key: '25', name: 'The Black Tomb', x: 5, y: 3 },
+      { key: '24', name: 'Antechamber', x: 5, y: 8 },
+    ]);
   });
 });
