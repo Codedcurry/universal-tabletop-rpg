@@ -279,6 +279,10 @@ test('the DM adds a JPG map picture: traced and furnished from their own descrip
   await expect(result).toContainText('cellar map');
   await expect(result).toContainText('Made for this map: Golden idol.');
   expect(asked.at(-1)).toContain('The map (');
+  // Roomier than the book: each square as 2 by 2 tiles.
+  await result.getByLabel('Map size').selectOption({ label: '2× bigger (a square is 2 by 2 tiles)' });
   await result.getByRole('button', { name: 'Use this map' }).click();
   await expect(dm.getByTestId('map-summary')).toContainText('square map');
+  const tiles = Number((await dm.getByTestId('map-summary').textContent())?.match(/(\d+) tiles/)?.[1]);
+  expect(tiles % 4).toBe(0);
 });

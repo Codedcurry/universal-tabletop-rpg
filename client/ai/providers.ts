@@ -26,6 +26,19 @@ const STORAGE_KEY = 'ttrpg.ai';
 /** The longest answer asked for, in tokens (about 3000 words). */
 const MAX_ANSWER_TOKENS = 4096;
 
+/**
+ * Ollama's working memory for one request, in tokens: room for the whole
+ * question and the longest answer (a token is about 3 characters, less for
+ * numbers and symbols). Too small, and the start of the question (its
+ * instructions) is quietly cut off. Kept in steps, so the model isn't
+ * reloaded for every size, and capped for the GPU's memory.
+ */
+function contextFor(request: AiRequest): number {
+  const asked = Math.ceil((request.system.length + request.prompt.length) / 3) + MAX_ANSWER_TOKENS + 512;
+  return Math.min(MAX_CONTEXT_TOKENS, Math.max(8192, Math.ceil(asked / 4096) * 4096));
+}
+const MAX_CONTEXT_TOKENS = 32768;
+
 export const DEFAULT_AI: AiSettings = { kind: 'ollama', baseUrl: AI_KINDS[0]!.baseUrl, model: '', apiKey: '' };
 
 export function loadAiSettings(): AiSettings {
@@ -116,7 +129,7 @@ export function makeProvider(settings: AiSettings): AiProvider {
             stream: false,
             ...(request.json ? { format: 'json' } : {}),
             // A cap on the answer: a model can get stuck writing forever (a few thousand words is plenty).
-            options: { temperature: 0.1, num_ctx: 8192, num_predict: MAX_ANSWER_TOKENS },
+            options: { temperature: 0.1, num_ctx: contextFor(request), num_predict: MAX_ANSWER_TOKENS },
           }),
           ...signal(request),
         })) as { message?: { content?: string } };

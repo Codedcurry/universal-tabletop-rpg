@@ -45,14 +45,35 @@ const sameName = (a: string, b: string) => {
   return x.length > 0 && x.length === y.length && x.every((word, index) => word === y[index]);
 };
 
+/** Odd capitals from a book's fonts evened out: "Guliver’s BEDROOM" → "Guliver’s bedroom", "INvisible" → "Invisible". */
+const evenCase = (name: string) =>
+  name
+    .split(' ')
+    .map((word, index) => {
+      const letters = word.replace(/[^A-Za-z]/g, '');
+      if (index > 0 && letters.length > 1 && letters === letters.toUpperCase()) return word.toLowerCase();
+      return /[a-z]/.test(word) && /^.[A-Z]/.test(word) ? word.charAt(0) + word.slice(1).toLowerCase() : word;
+    })
+    .join(' ');
+
 /**
  * Keyed areas: a number, then a name in capitals (two or more letters a
- * word), at the start of a description. The first page each appears on.
+ * word), at the start of a description; or a line of its own that's a
+ * number, a dash or stop, and a name in any case ("6 - Musk boar den",
+ * "12. The Well"). The first page each appears on.
  */
 export function findAreas(pages: readonly string[]): BookArea[] {
   const found = new Map<string, BookArea>();
+  const add = (key: string, name: string, page: number) => {
+    const id = `${key}:${name}`;
+    if (![...found.values()].some((area) => `${area.key}:${area.name.toUpperCase()}` === id.toUpperCase() || (area.key === key && sameName(area.name, name)))) {
+      found.set(id, { key, name: name === name.toUpperCase() ? titleCase(name) : name, page });
+    }
+  };
   // A key, then capitalised words (THE BLACK TOMB, ALCHEMIST’S LABORATORY), ending before a word in lower case.
   const heading = /(?:^|\s)(\d{1,3})\s+((?:[A-Z][A-Z’'\-]+)(?:(?:\s+|\s*[—–]\s*)[A-Z][A-Z’'\-]+){0,5})(?=\s+(?:[A-Z]?[a-z(]|[A-Z]\s)|\s*[.:,]|\s*$)/g;
+  // A heading line: "6 - Musk boar den", "12. The Well" (a name broken over two lines with a hyphen is joined).
+  const line = /^\s*(\d{1,3})\s*[-–—.:)]\s*([A-Z][A-Za-z’'\s-]{2,60}?)\s*([-–]?)\s*[.:]?\s*$/;
   pages.forEach((text, index) => {
     if (text.length < MAP_PAGE_TEXT) return;
     for (const match of text.matchAll(heading)) {
@@ -61,19 +82,38 @@ export function findAreas(pages: readonly string[]): BookArea[] {
       const letters = caps.replace(/[^A-Z]/g, '');
       // Not an abbreviation or stat (HP, AC), and a sensible key.
       if (letters.length < 4 || Number(key) < 1 || Number(key) > 199) continue;
-      const id = `${key}:${caps}`;
-      if (![...found.values()].some((area) => `${area.key}:${area.name.toUpperCase()}` === id.toUpperCase() || (area.key === key && sameName(area.name, caps)))) {
-        found.set(id, { key, name: titleCase(caps), page: index + 1 });
-      }
+      add(key, caps, index + 1);
     }
+    const lines = text.split('\n');
+    lines.forEach((row, at) => {
+      const match = line.exec(row);
+      if (!match || Number(match[1]) < 1 || Number(match[1]) > 199) return;
+      let name = evenCase(match[2]!.replace(/\s+/g, ' ').trim());
+      // "Statue of Saint Fre -" then "delus.": one word.
+      if (match[3]) name += (lines[at + 1] ?? '').trim().split(/\s+/)[0]?.replace(/[.:,]+$/, '') ?? '';
+      const named = words(name);
+      if (named.length === 0 || named.length > 6 || name.replace(/[^A-Za-z]/g, '').length < 4) return;
+      add(match[1]!, name, index + 1);
+    });
   });
   return [...found.values()].sort((a, b) => Number(a.key) - Number(b.key) || a.page - b.page);
 }
 
-/** Map pages: little text, with labels naming the book's areas ("Black Tomb 25"). */
+/**
+ * Map pages: little text, with labels naming the book's areas ("Black Tomb
+ * 25"); or any page whose map labels are bare numbers (lines of nothing but
+ * numbers: "1", "3 4") naming at least three of the book's areas, even with
+ * the areas' text beside the map. Their descriptions can be on any page.
+ */
 export function findMaps(pages: readonly string[], areas: readonly BookArea[]): BookMap[] {
   const maps: BookMap[] = [];
   pages.forEach((text, index) => {
+    const numbers = new Set(text.split('\n').flatMap((row) => (/^\s*\d{1,3}(?:\s+\d{1,3})*\s*$/.test(row) ? row.trim().split(/\s+/) : [])));
+    const numbered = areas.filter((area) => numbers.has(area.key));
+    if (new Set(numbered.map((area) => area.key)).size >= 3) {
+      maps.push({ page: index + 1, areas: numbered });
+      return;
+    }
     if (text.length >= MAP_PAGE_TEXT) return;
     const flat = text.replace(/\s+/g, ' ');
     const shown = areas.filter((area) => {

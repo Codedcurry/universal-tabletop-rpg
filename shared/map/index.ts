@@ -271,6 +271,7 @@ export function validateMapData(data: unknown): MapValidation {
   }
 }
 export { type Vec3, rayPick } from './raypick';
+export { enlargeMap, largestEnlargement } from './enlarge';
 export {
   type CustomObject,
   MAP_OBJECTS,

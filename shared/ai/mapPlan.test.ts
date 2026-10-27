@@ -176,9 +176,11 @@ describe('furnishing a traced map', () => {
   ];
 
   it('knows each area\'s squares: the room its label is in', () => {
-    // The doorway joins the rooms into one: both labels share it.
+    // The doorway joins the rooms into one: it's shared out, each square to the label nearest it by walking.
     const areas = areasOf(traced, labels);
-    expect(areas['1']).toHaveLength(19);
+    expect([...(areas['1'] ?? []), ...(areas['2'] ?? [])]).toHaveLength(19);
+    expect(areas['1']?.every((cell) => cell.x <= 4)).toBe(true);
+    expect(areas['2']?.every((cell) => cell.x >= 4)).toBe(true);
     const split = { ...traced, cells: traced.cells.map((cell, at) => (at === 2 * 9 + 4 ? 'wall' : cell)) as ('wall' | 'floor')[] };
     expect(areasOf(split, labels)['2']?.every((cell) => cell.x >= 5)).toBe(true);
   });

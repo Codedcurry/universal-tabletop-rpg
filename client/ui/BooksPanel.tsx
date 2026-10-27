@@ -18,7 +18,7 @@ import {
 } from '@shared/ai';
 import type { HostSession } from '@shared/net';
 import type { GameSystem } from '@shared/system';
-import { MAX_BACKDROP_CHARS, type MapBackdrop, type MapData } from '@shared/map';
+import { MAX_BACKDROP_CHARS, type MapBackdrop, type MapData, enlargeMap, largestEnlargement } from '@shared/map';
 import { isPdf, isPicture, readBookPages, readMapPage, readMapPicture } from '../ai/bookText';
 import { type AiSettings, loadAiSettings, makeProvider, saveAiSettings } from '../ai/providers';
 import { AiSetup } from './AiSetup';
@@ -102,6 +102,9 @@ export function BooksPanel({ session, onUseMap }: { session: HostSession; onUseM
   const [described, setDescribed] = useState('');
   /** Lay the book's own map art on the floor of a traced map. */
   const [withArt, setWithArt] = useState(true);
+  /** How many tiles across each of the map's squares becomes (a book's squares can be cramped to play on). */
+  const [enlarge, setEnlarge] = useState(1);
+  const sized = useMemo(() => (made?.kind === 'map' ? enlargeMap(made.map, largestEnlargement(made.map, enlarge)) : null), [made, enlarge]);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const stopper = useRef<AbortController | null>(null);
@@ -357,7 +360,19 @@ export function BooksPanel({ session, onUseMap }: { session: HostSession; onUseM
           {made?.kind === 'map' && (
             <section className="map-result" aria-label="The map">
               <h4>{made.name}</h4>
-              <MapPreview map={made.map} />
+              {made.map.grid === 'square' && (
+                <label>
+                  <span>Map size</span>
+                  <select value={enlarge} onChange={(event) => setEnlarge(Number(event.target.value))}>
+                    {[1, 2, 3].map((factor) => (
+                      <option key={factor} value={factor} disabled={largestEnlargement(made.map, factor) < factor}>
+                        {factor === 1 ? 'As drawn (a square is a tile)' : `${factor}× bigger (a square is ${factor} by ${factor} tiles)`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <MapPreview map={sized ?? made.map} />
               {made.notes.map((note) => (
                 <p key={note} className="muted small">
                   {note}
@@ -368,7 +383,7 @@ export function BooksPanel({ session, onUseMap }: { session: HostSession; onUseM
                   type="button"
                   className="primary"
                   onClick={() => {
-                    onUseMap(made.map, madeFrom);
+                    onUseMap(sized ?? made.map, madeFrom);
                     setMade(null);
                     setNotice('The map is in use: see the Map tab to touch it up (Undo brings the old one back).');
                   }}

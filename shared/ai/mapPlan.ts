@@ -23,6 +23,8 @@ export const PLAN_MAX_SIZE = 60;
 export const MAP_TEXT_CHARS = 16000;
 /** At most this many objects from one plan (a small model can repeat itself without end). */
 export const MAX_PLAN_OBJECTS = 40;
+/** At most this many floor patches from one plan. */
+const MAX_PLAN_AREAS = 24;
 /** On a traced map, a floor patch (water, a raised dais) may cover at most this share of the floor. */
 const MAX_PATCH_SHARE = 0.25;
 
@@ -179,7 +181,7 @@ export function buildMapFromPlan(plan: Data, gridKind?: GridKind, base?: TracedM
   const unknown = new Set<string>();
   const floorCount = [...tiles.values()].filter((tile) => !tile.blocked).length;
   const oversized = new Set<string>();
-  for (const area of list(plan.areas)) {
+  for (const area of list(plan.areas).slice(0, MAX_PLAN_AREAS)) {
     const terrain = area.terrain === undefined ? undefined : terrainOf(area.terrain);
     if (area.terrain !== undefined && !terrain) unknown.add(String(area.terrain));
     const level = area.height === undefined ? undefined : clamp(whole(area.height) ?? 0, 0, MAX_HEIGHT);
@@ -348,17 +350,46 @@ export function areasOf(traced: TracedMap, labels: readonly MapLabel[]): Record<
     }
     rooms.push(cells);
   });
-  const found: Record<string, { x: number; y: number }[]> = {};
+  // Each label's room, and the floor square nearest it.
+  const placed: { key: string; room: number; start: number }[] = [];
   for (const label of labels) {
-    let best = { index: -1, distance: Infinity };
+    let best = { index: -1, cell: { x: 0, y: 0 }, distance: Infinity };
     rooms.forEach((cells, index) => {
       for (const cell of cells) {
         const distance = Math.hypot(cell.x - label.x, cell.y - label.y);
-        if (distance < best.distance) best = { index, distance };
+        if (distance < best.distance) best = { index, cell, distance };
       }
     });
-    if (best.index >= 0 && best.distance <= 3) found[label.key] = rooms[best.index]!;
+    if (best.index >= 0 && best.distance <= 3) placed.push({ key: label.key, room: best.index, start: best.cell.y * traced.width + best.cell.x });
   }
+  // A room with several labels (a cave's open floor, rooms joined by doorways) is shared out:
+  // each square goes to the label nearest it by walking.
+  const owner = new Int32Array(traced.cells.length).fill(-1);
+  const queue: number[] = [];
+  placed.forEach((label, index) => {
+    if (owner[label.start] !== -1) return;
+    owner[label.start] = index;
+    queue.push(label.start);
+  });
+  for (let head = 0; head < queue.length; head++) {
+    const at = queue[head] as number;
+    const x = at % traced.width;
+    const y = Math.floor(at / traced.width);
+    for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]] as const) {
+      const next = ny * traced.width + nx;
+      if (nx >= 0 && ny >= 0 && nx < traced.width && ny < traced.height && traced.cells[next] === 'floor' && owner[next] === -1) {
+        owner[next] = owner[at] as number;
+        queue.push(next);
+      }
+    }
+  }
+  const found: Record<string, { x: number; y: number }[]> = {};
+  placed.forEach((label, index) => {
+    // Two labels on one square: they share it (and what's around it).
+    const mine = owner[label.start] as number;
+    found[label.key] = rooms[label.room]!.filter((cell) => owner[cell.y * traced.width + cell.x] === mine);
+    if (mine !== index) found[label.key] = found[placed[mine]!.key] ?? found[label.key]!;
+  });
   return found;
 }
 
@@ -382,7 +413,7 @@ Reply with ONE JSON object and nothing else, in this form (the values here only 
  "notes": "What you assumed."}
 - Give each object its area (the area's number, from the list you're given) and where in it: centre, north, south, east, west, northeast, northwest, southeast, southwest (north is up), or door (by the area's doorway). The square is worked out for you. Add one object entry per item (two statues: two entries), at most ${MAX_PLAN_OBJECTS} in all. Put each item in the area the text describes it in. If the only area is "map", the map has no labelled areas: give every object area "map", and use where for the part of the map the text puts it in.
 - The tracing finds only rock and floor: water isn't marked. If the text mentions water (a river, a creek, a pool, a flooded room), mark its squares with "areas" of terrain water, following the floor where it runs.
-- "areas" only changes the floor: terrain is one of grass, dirt, sand, stone, water, snow, wood (wood is a wooden floor); "height" in levels of about 5 feet. Leave it empty if the floor is plain.
+- "areas" only changes the floor: terrain is one of grass, dirt, sand, stone, water, snow, wood (wood is a wooden floor); "height" in levels of about 5 feet. Use a few rectangles (at most 12), each as big as it can be: never one square at a time. Leave it empty if the floor is plain.
 - objects: kind is one of ${objectList}, or the name of one of your newObjects. Only what the text describes: add nothing it doesn't mention. Rooms and buildings aren't objects (a library, a bedroom): put the things in them (bookshelves, a bed).
 - newObjects: things the areas need that aren't in that list (an altar, a sarcophagus, a book on a stand, a cage, a brazier), especially anything the players can take, use, or fight over. Build each from 1 to 8 simple parts: shape is box, cylinder, cone, or sphere; size is [width, height, depth] in tiles (1 = a whole tile; a person is about 0.4 wide and 1 tall); "at" is where the part's bottom middle sits, [across, up, along] from the tile's centre; color is #rrggbb; "glow": true for magic, flames, and crystals. "blocks": whether no one can stand there; "blocksSight": whether it's tall enough to hide what's behind it.`;
 
