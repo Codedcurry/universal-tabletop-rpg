@@ -1,5 +1,5 @@
 import { type Cell, type GridKind, cell } from '../grid';
-import { type CustomObject, MAP_FORMAT_VERSION, MAX_CUSTOM_OBJECTS, MAX_HEIGHT, MAX_OBJECT_PARTS, type MapData, type ObjectPart, type TileData, createWorldMap, objectInfo } from '../map';
+import { type CustomObject, MAP_FORMAT_VERSION, MAX_CUSTOM_OBJECTS, MAX_HEIGHT, MAX_OBJECT_PARTS, type MapData, type ObjectPart, type TileData, type WallData, createWorldMap, objectInfo } from '../map';
 import { idFrom } from '../system';
 import { type TracedMap, tracedText } from './trace';
 import type { AiProvider, StopSignal } from './provider';
@@ -21,6 +21,10 @@ export const PLAN_MIN_SIZE = 4;
 export const PLAN_MAX_SIZE = 60;
 /** About how much text goes to the AI at once (an encounter is a few pages). */
 export const MAP_TEXT_CHARS = 16000;
+/** At most this many objects from one plan (a small model can repeat itself without end). */
+export const MAX_PLAN_OBJECTS = 40;
+/** On a traced map, a floor patch (water, a raised dais) may cover at most this share of the floor. */
+const MAX_PATCH_SHARE = 0.25;
 
 const objectList = 'tree, pine, dead_tree, bush, flowers, mushrooms, stump, rock, boulder, crystal, crate, barrel, chest, table, pillar, statue, campfire, well, signpost, tent';
 
@@ -168,11 +172,13 @@ export function buildMapFromPlan(plan: Data, gridKind?: GridKind, base?: TracedM
   const made = madeObjects(plan.newObjects);
   if (made.length > 0) notes.push(`Made for this map: ${made.map((object) => object.name).join(', ')}.`);
   const kindOf = (kind: string): CustomObject | ReturnType<typeof objectInfo> => {
-    const named = kind.trim().toLowerCase();
+    const named = spokenName(kind);
     return objectInfo(kind) ?? made.find((object) => object.id === kind || object.name.toLowerCase() === named);
   };
 
   const unknown = new Set<string>();
+  const floorCount = [...tiles.values()].filter((tile) => !tile.blocked).length;
+  const oversized = new Set<string>();
   for (const area of list(plan.areas)) {
     const terrain = area.terrain === undefined ? undefined : terrainOf(area.terrain);
     if (area.terrain !== undefined && !terrain) unknown.add(String(area.terrain));
@@ -183,13 +189,19 @@ export function buildMapFromPlan(plan: Data, gridKind?: GridKind, base?: TracedM
       area.shape === 'circle'
         ? (x, y) => (x - x0) ** 2 + (y - y0) ** 2 <= (whole(area.r) ?? 1) ** 2 + 0.5
         : (x, y) => x >= x0 && y >= y0 && x < x0 + (whole(area.w) ?? 1) && y < y0 + (whole(area.h) ?? 1);
-    for (const tile of tiles.values()) {
-      // On a traced map the walls stay as they are.
-      if (!inside(tile.x, tile.y) || (base && tile.blocked)) continue;
+    // On a traced map the walls stay as they are.
+    const covered = [...tiles.values()].filter((tile) => inside(tile.x, tile.y) && !(base && tile.blocked));
+    // A traced map's floor is the book's: a patch over a big share of it is a guess gone wrong (all the floor, water).
+    if (base && covered.length > floorCount * MAX_PATCH_SHARE) {
+      oversized.add(terrain ?? 'height');
+      continue;
+    }
+    for (const tile of covered) {
       if (terrain) tile.terrain = terrain;
       if (level !== undefined) tile.height = level;
     }
   }
+  if (oversized.size > 0) notes.push(`Left out ${[...oversized].join(' and ')} covering too much of the floor: paint it with the map editor's brush.`);
 
   // Walls: solid stone tiles, two levels above the ground beside them; doors are gaps.
   const doors = new Set(list(plan.doors).map((door) => `${whole(door.x)},${whole(door.y)}`));
@@ -212,7 +224,7 @@ export function buildMapFromPlan(plan: Data, gridKind?: GridKind, base?: TracedM
   }
   if (crooked > 0) notes.push(`${crooked} slanted wall${crooked === 1 ? ' was' : 's were'} laid as a line of tiles: check ${crooked === 1 ? 'it' : 'them'}.`);
 
-  for (const object of list(plan.objects)) {
+  for (const object of list(plan.objects).slice(0, MAX_PLAN_OBJECTS)) {
     // By area and spot ("25", "centre"), where the map's areas are known; else by square.
     const areaKey = object.area === undefined ? undefined : String(object.area).replace(/[^0-9a-z]/gi, '');
     const cells = areaKey ? areaCells?.[areaKey] : undefined;
@@ -258,7 +270,12 @@ export function buildMapFromPlan(plan: Data, gridKind?: GridKind, base?: TracedM
   });
   // Only the made objects that were placed go with the map.
   const placed = made.filter((object) => data.some((tile) => tile.object === object.id));
-  const map = createWorldMap({ formatVersion: MAP_FORMAT_VERSION, grid, tiles: data, walls: [], ...(placed.length > 0 ? { objects: placed } : {}) }).toData();
+  // A traced building's thin walls, between two squares that are both on the map.
+  const walls: WallData[] = (base?.walls ?? []).flatMap((wall): WallData[] => {
+    const [nx, ny] = wall.side === 'east' ? [wall.x + 1, wall.y] : [wall.x, wall.y + 1];
+    return tileAt(wall.x, wall.y) && tileAt(nx, ny) ? [[at(grid, wall.x, wall.y), at(grid, nx, ny)]] : [];
+  });
+  const map = createWorldMap({ formatVersion: MAP_FORMAT_VERSION, grid, tiles: data, walls, ...(placed.length > 0 ? { objects: placed } : {}) }).toData();
   const name = typeof plan.name === 'string' && plan.name.trim() ? plan.name.trim() : 'Map from the book';
   return { kind: 'map', name, map, notes };
 }
@@ -275,7 +292,7 @@ export function madeObjects(value: unknown): CustomObject[] {
   return list(value)
     .slice(0, MAX_CUSTOM_OBJECTS)
     .flatMap((raw): CustomObject[] => {
-      const name = typeof raw.name === 'string' ? raw.name.trim().slice(0, 60) : '';
+      const name = typeof raw.name === 'string' ? tidyName(raw.name).slice(0, 60) : '';
       if (!name) return [];
       const parts: ObjectPart[] = list(raw.parts)
         .slice(0, MAX_OBJECT_PARTS)
@@ -356,33 +373,66 @@ export interface MapLabel {
 /** Instructions for furnishing a map traced from a book's picture. */
 export const FURNISH_INSTRUCTIONS = `You furnish a battle map traced from a tabletop RPG book the user owns. Its walls and floors are already laid out; you add what the book says is in each area.
 You get: the map as rows of characters (# wall, . floor, space outside), "row y:" before each, x being the column from 0 at the left; the areas, with the squares each covers; and the areas' descriptions.
-Reply with ONE JSON object and nothing else:
+Reply with ONE JSON object and nothing else, in this form (the values here only show the format: use this map's own areas, and only the things its text describes):
 {"layout": "In words first: for each area, its squares (around its label, bounded by walls), and what goes where in it.",
- "name": "Lower Crypts",
+ "name": "<the place's name>",
  "areas": [{"terrain": "water", "x": 4, "y": 6, "w": 2, "h": 1}],
- "newObjects": [{"name": "Obsidian sarcophagus", "blocks": true, "blocksSight": false, "parts": [{"shape": "box", "size": [0.5, 0.5, 0.9], "color": "#1a1820"}, {"shape": "box", "size": [0.5, 0.06, 0.9], "at": [0, 0.5, 0], "color": "#7cff4a", "glow": true}]}],
- "objects": [{"kind": "Obsidian sarcophagus", "area": "25", "where": "centre"}, {"kind": "statue", "area": "24", "where": "north"}, {"kind": "statue", "area": "24", "where": "north"}],
+ "newObjects": [{"name": "<a thing the text describes>", "blocks": true, "blocksSight": false, "parts": [{"shape": "box", "size": [0.5, 0.5, 0.9], "color": "#6b5a48"}]}],
+ "objects": [{"kind": "<that thing's name>", "area": "<an area's number>", "where": "centre"}, {"kind": "statue", "area": "<an area's number>", "where": "north"}],
  "notes": "What you assumed."}
-- Give each object its area (the area's number) and where in it: centre, north, south, east, west, northeast, northwest, southeast, southwest (north is up), or door (by the area's doorway). The square is worked out for you. Add one object entry per item (two statues: two entries). Put each item in the area the text describes it in.
+- Give each object its area (the area's number, from the list you're given) and where in it: centre, north, south, east, west, northeast, northwest, southeast, southwest (north is up), or door (by the area's doorway). The square is worked out for you. Add one object entry per item (two statues: two entries), at most ${MAX_PLAN_OBJECTS} in all. Put each item in the area the text describes it in. If the only area is "map", the map has no labelled areas: give every object area "map", and use where for the part of the map the text puts it in.
+- The tracing finds only rock and floor: water isn't marked. If the text mentions water (a river, a creek, a pool, a flooded room), mark its squares with "areas" of terrain water, following the floor where it runs.
 - "areas" only changes the floor: terrain is one of grass, dirt, sand, stone, water, snow, wood (wood is a wooden floor); "height" in levels of about 5 feet. Leave it empty if the floor is plain.
-- objects: kind is one of ${objectList}, or the name of one of your newObjects.
+- objects: kind is one of ${objectList}, or the name of one of your newObjects. Only what the text describes: add nothing it doesn't mention. Rooms and buildings aren't objects (a library, a bedroom): put the things in them (bookshelves, a bed).
 - newObjects: things the areas need that aren't in that list (an altar, a sarcophagus, a book on a stand, a cage, a brazier), especially anything the players can take, use, or fight over. Build each from 1 to 8 simple parts: shape is box, cylinder, cone, or sphere; size is [width, height, depth] in tiles (1 = a whole tile; a person is about 0.4 wide and 1 tall); "at" is where the part's bottom middle sits, [across, up, along] from the tile's centre; color is #rrggbb; "glow": true for magic, flames, and crystals. "blocks": whether no one can stand there; "blocksSight": whether it's tall enough to hide what's behind it.`;
+
+/** At most this many things named in a plan but not built in it are made afterwards. */
+const MAX_MADE_AFTER = 8;
+
+/** "catBed", "cat_bed" → "cat bed". */
+function spokenName(kind: string): string {
+  return kind
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+/** A made object's name as people write it: "headless_statue" → "Headless statue" (names with spaces are kept). */
+function tidyName(name: string): string {
+  const trimmed = name.trim();
+  if (/\s/.test(trimmed)) return trimmed;
+  const spoken = spokenName(trimmed);
+  return spoken.charAt(0).toUpperCase() + spoken.slice(1);
+}
 
 /**
  * Asks the user's AI to furnish a traced map from the areas' descriptions.
- * Returns the map (or, if the reply can't be used, the traced map bare).
+ * Things it names without building (a "cat bed" that's neither in the
+ * catalog nor among its newObjects) are made with `makeThing`, if given, one
+ * by one. Returns the map (or, if the reply can't be used, the traced map bare).
  */
 export async function furnishMap(
   provider: AiProvider,
   traced: TracedMap,
-  options: { labels?: readonly MapLabel[]; text: string; grid?: GridKind; signal?: StopSignal },
+  options: {
+    labels?: readonly MapLabel[];
+    text: string;
+    grid?: GridKind;
+    signal?: StopSignal;
+    makeThing?: (description: string) => Promise<CustomObject>;
+    onProgress?: (message: string) => void;
+  },
 ): Promise<MapPlanResult> {
   const rows = tracedText(traced)
     .split('\n')
     .map((row, y) => `row ${y}: ${row}`)
     .join('\n');
   // Each area: the floor squares joined to its label (rooms are split by walls, so a room is one area).
-  const areaCells = areasOf(traced, options.labels ?? []);
+  // A map with no labels (a picture) is one area, "map": things go by the part of it they're in.
+  const unlabelled = (options.labels ?? []).length === 0;
+  const floor = traced.cells.flatMap((cell, at) => (cell === 'floor' ? [{ x: at % traced.width, y: Math.floor(at / traced.width) }] : []));
+  const areaCells: Record<string, { x: number; y: number }[]> = unlabelled ? { map: floor } : areasOf(traced, options.labels ?? []);
   const labels = (options.labels ?? [])
     .map((label) => {
       const cells = areaCells[label.key] ?? [];
@@ -394,13 +444,36 @@ export async function furnishMap(
     .join('\n');
   const reply = await provider.complete({
     system: FURNISH_INSTRUCTIONS,
-    prompt: `The map (${traced.width} squares across, ${traced.height} down):\n${rows}\n\nWhere the areas are:\n${labels || '(no labels found)'}\n\nThe areas, from the book:\n\n${options.text.slice(0, MAP_TEXT_CHARS)}`,
+    prompt: `The map (${traced.width} squares across, ${traced.height} down):\n${rows}\n\nWhere the areas are:\n${unlabelled ? `map: the whole floor (${floor.length} squares; no areas are labelled)` : labels}\n\nThe areas, from the book:\n\n${options.text.slice(0, MAP_TEXT_CHARS)}`,
     json: true,
     ...(options.signal ? { signal: options.signal } : {}),
   });
   const plan = readJsonReply(reply);
+  if (plan && options.makeThing) await makeMissing(plan, options.makeThing, options.onProgress);
   const built = buildMapFromPlan(plan ?? {}, options.grid, traced, areaCells);
   return plan ? built : { ...built, notes: ["The AI's answer couldn't be read: here is the traced map, to furnish by hand.", ...built.notes] };
+}
+
+/** Makes the things a plan places but doesn't build, adding them to its newObjects (things that can't be made are left out). */
+async function makeMissing(plan: Data, makeThing: (description: string) => Promise<CustomObject>, onProgress?: (message: string) => void): Promise<void> {
+  const built = madeObjects(plan.newObjects);
+  const known = (kind: string) => objectInfo(kind) !== undefined || built.some((object) => object.id === kind || object.name.toLowerCase() === kind.trim().toLowerCase());
+  const missing = [...new Set(list(plan.objects).flatMap((object) => (typeof object.kind === 'string' && object.kind.trim() && !known(object.kind) ? [object.kind] : [])))].slice(0, MAX_MADE_AFTER);
+  const made: Data[] = [];
+  const renamed = new Map<string, string>();
+  for (const [index, kind] of missing.entries()) {
+    onProgress?.(`Making ${spokenName(kind)} (${index + 1} of ${missing.length})…`);
+    try {
+      const object = await makeThing(spokenName(kind));
+      made.push({ ...object });
+      renamed.set(kind, object.name);
+    } catch {
+      // Left out, and said so with the rest.
+    }
+  }
+  if (made.length === 0) return;
+  plan.newObjects = [...list(plan.newObjects), ...made];
+  plan.objects = list(plan.objects).map((object) => (typeof object.kind === 'string' && renamed.has(object.kind) ? { ...object, kind: renamed.get(object.kind) } : object));
 }
 
 /**

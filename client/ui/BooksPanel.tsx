@@ -10,6 +10,7 @@ import {
   findMaps,
   furnishMap,
   importRulebook,
+  makeObject,
   placeLabels,
   planMap,
   type TracedMap,
@@ -51,6 +52,8 @@ interface Book {
  * The part of a page picture a traced map covers, as a compact JPEG laid on
  * the map's ground (null if it's too big to send to players even when shrunk).
  */
+const OFF_MAP = '#14121c';
+
 function pictureOf(pixels: ImageData, traced: TracedMap): MapBackdrop | null {
   const page = document.createElement('canvas');
   page.width = pixels.width;
@@ -70,6 +73,12 @@ function pictureOf(pixels: ImageData, traced: TracedMap): MapBackdrop | null {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(page, traced.origin.x, traced.origin.y, across, down, 0, 0, canvas.width, canvas.height);
+    // Off the map (the page's margins, paper around a cave): dark, like the space around any map.
+    ctx.fillStyle = OFF_MAP;
+    const side = traced.square * scale;
+    traced.cells.forEach((cell, at) => {
+      if (cell === 'outside') ctx.fillRect(Math.floor((at % traced.width) * side), Math.floor(Math.floor(at / traced.width) * side), Math.ceil(side) + 1, Math.ceil(side) + 1);
+    });
     const image = canvas.toDataURL('image/jpeg', quality);
     if (image.length <= MAX_BACKDROP_CHARS) return { image, width: traced.width, height: traced.height };
   }
@@ -91,6 +100,8 @@ export function BooksPanel({ session, onUseMap }: { session: HostSession; onUseM
   const [other, setOther] = useState({ book: 0, page: 1 });
   /** The DM's own description of the encounter, used with whatever the page says. */
   const [described, setDescribed] = useState('');
+  /** Lay the book's own map art on the floor of a traced map. */
+  const [withArt, setWithArt] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const stopper = useRef<AbortController | null>(null);
@@ -169,11 +180,12 @@ export function BooksPanel({ session, onUseMap }: { session: HostSession; onUseM
         if (traced) {
           setMaking('Furnishing it from the book… This can take a minute.');
           const labels = placeLabels(read.words, areas, traced);
-          const result = await furnishMap(provider, traced, { labels, text, grid: 'square', signal: controller.signal });
-          // The page's own art on the ground, lined up with the traced squares.
-          const backdrop = pictureOf(read.pixels, traced);
-          // With the art, the traced walls lie flat under it (the art shows them): they still block the way and the view.
-          const map = backdrop ? { ...result.map, backdrop, tiles: result.map.tiles.map((tile) => (tile.blocked && !tile.object ? { ...tile, height: 0 } : tile)) } : result.map;
+          // Anything the AI names but doesn't build, it then makes, one by one.
+          const makeThing = (description: string) => makeObject(provider, description, { signal: controller.signal });
+          const result = await furnishMap(provider, traced, { labels, text, grid: 'square', signal: controller.signal, makeThing, onProgress: setMaking });
+          // The page's own art on the floor, lined up with the traced squares; the rock and walls stand up through it.
+          const backdrop = withArt ? pictureOf(read.pixels, traced) : null;
+          const map = backdrop ? { ...result.map, backdrop } : result.map;
           setMade({ ...result, map, name: areas.length > 0 ? areas.map((area) => area.name).join(', ') : book.picture ? book.name : result.name });
           return;
         }
@@ -304,6 +316,10 @@ export function BooksPanel({ session, onUseMap }: { session: HostSession; onUseM
           <label className="books-describe">
             <span>Describe the encounter (optional: what's there, who, what happens)</span>
             <textarea rows={2} value={described} maxLength={2000} onChange={(event) => setDescribed(event.target.value)} />
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={withArt} onChange={(event) => setWithArt(event.target.checked)} />
+            <span>Lay the book&apos;s map art on the floor</span>
           </label>
           <div className="row">
             <label>

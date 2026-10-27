@@ -68,6 +68,36 @@ describe('traceMap', () => {
     expect(rows.slice(2, 4)).toEqual([' #.##...#', ' #.##...#']);
   });
 
+  it('traces a cave-style map: hatched rock, the grid only on the floor, blank paper outside, a building wall along the grid', () => {
+    const square = 25;
+    const width = 16 * square;
+    const height = 12 * square;
+    const data = new Uint8ClampedArray(width * height * 4).fill(PAPER);
+    const set = (x: number, y: number, value: number) => data.set([value, value, value, 255], (y * width + x) * 4);
+    // Rock: a hatched ring a square thick around columns 3-11, rows 3-8.
+    for (let y = 2 * square; y < 10 * square; y++) {
+      for (let x = 2 * square; x < 13 * square; x++) {
+        const inside = x >= 3 * square && x < 12 * square && y >= 3 * square && y < 9 * square;
+        if (!inside && (x + y) % 3 !== 0) set(x, y, INKED);
+      }
+    }
+    // The grid: thin dark lines over the floor only.
+    for (let line = 3 * square; line <= 12 * square; line += square) for (let y = 3 * square; y < 9 * square; y++) set(line, y, 70);
+    for (let line = 3 * square; line <= 9 * square; line += square) for (let x = 3 * square; x < 12 * square; x++) set(x, line, 70);
+    // A building's wall: a thick line along the grid between columns 7 and 8, rows 3-5.
+    for (let y = 3 * square; y < 6 * square; y++) for (let x = 8 * square - 2; x <= 8 * square + 2; x++) set(x, y, INKED);
+
+    const traced = traceMap({ width, height, data })!;
+    expect(traced.square).toBeCloseTo(square, 0);
+    expect(traced.cells.filter((cell) => cell === 'floor')).toHaveLength(9 * 6);
+    const text = tracedText(traced).split('\n');
+    expect(text[1]).toBe(' ###########');
+    expect(text[2]).toBe(' #.........#');
+    // The wall is between squares, three of them; the floor on both sides stays floor.
+    expect(traced.walls).toHaveLength(3);
+    expect(traced.walls?.every((wall) => wall.side === 'east' && wall.x === 6)).toBe(true);
+  });
+
   it('has no map without a grid', () => {
     expect(traceMap(page(200, 200, 1000).image)).toBeNull();
   });

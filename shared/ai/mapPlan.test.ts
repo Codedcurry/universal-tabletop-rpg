@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createWorldMap } from '../map';
-import { type AiProvider, type AiRequest, areasOf, buildFromReply, buildMapFromPlan, placeLabels, planMap, previewTiles } from './index';
+import { type AiProvider, type AiRequest, areasOf, buildFromReply, buildMapFromPlan, furnishMap, placeLabels, planMap, previewTiles } from './index';
 
 // Maps from a book: the AI writes a map plan (rows and columns: ground,
 // areas, walls with doors, objects) from an encounter's text or a picture of
@@ -181,6 +181,43 @@ describe('furnishing a traced map', () => {
     expect(areas['1']).toHaveLength(19);
     const split = { ...traced, cells: traced.cells.map((cell, at) => (at === 2 * 9 + 4 ? 'wall' : cell)) as ('wall' | 'floor')[] };
     expect(areasOf(split, labels)['2']?.every((cell) => cell.x >= 5)).toBe(true);
+  });
+
+  it('builds a traced building\'s thin walls, and leaves out a floor patch over too much of it', () => {
+    const result = buildMapFromPlan(
+      { areas: [{ terrain: 'water', x: 0, y: 0, w: 9, h: 5 }] },
+      'square',
+      { ...traced, walls: [{ x: 3, y: 1, side: 'east' }] },
+    );
+    expect(result.map.walls).toEqual([[{ q: 3, r: 1 }, { q: 4, r: 1 }]]);
+    expect(previewTiles(result.map).some((tile) => tile.terrain === 'water')).toBe(false);
+    expect(result.notes.join(' ')).toMatch(/Left out water covering too much of the floor/);
+  });
+
+  it('furnishes a map with no labels by the part of it things are in, and makes what the AI names but doesn\'t build', async () => {
+    const requests: AiRequest[] = [];
+    const provider: AiProvider = {
+      label: 'Fake',
+      complete: async (request) => {
+        requests.push(request);
+        return JSON.stringify({ objects: [{ kind: 'catBed', area: 'map', where: 'northeast' }, { kind: 'barrel', area: 'map', where: 'southwest' }] });
+      },
+    };
+    const asked: string[] = [];
+    const result = await furnishMap(provider, traced, {
+      text: 'A cat bed in the corner.',
+      grid: 'square',
+      makeThing: async (description) => {
+        asked.push(description);
+        return { id: 'cat_bed', name: 'Cat bed', blocks: false, blocksSight: false, parts: [{ shape: 'box', size: [0.6, 0.2, 0.6], color: '#aa3355' }] };
+      },
+    });
+    expect(requests[0]?.prompt).toContain('map: the whole floor');
+    expect(asked).toEqual(['cat bed']);
+    const at = (x: number, y: number) => previewTiles(result.map).find((tile) => tile.x === x && tile.y === y);
+    expect(at(7, 1)?.object).toBe('cat_bed');
+    expect(at(1, 3)?.object).toBe('barrel');
+    expect(result.notes).toContain('Made for this map: Cat bed.');
   });
 
   it('keeps the traced walls, and places objects by area and spot', () => {
